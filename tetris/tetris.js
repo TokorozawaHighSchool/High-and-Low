@@ -68,8 +68,21 @@ function drawMatrix(matrix, offset, ctx = context) {
     matrix.forEach((row, y) => {
         row.forEach((value, x) => {
             if (value !== 0) {
+                // 本体
                 ctx.fillStyle = colors[value];
                 ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
+                // 影（右下）
+                ctx.save();
+                ctx.globalAlpha = 0.25;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(x + offset.x + 0.15, y + offset.y + 0.15, 0.7, 0.7);
+                ctx.restore();
+                // 枠線
+                ctx.save();
+                ctx.lineWidth = 0.08;
+                ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                ctx.strokeRect(x + offset.x, y + offset.y, 1, 1);
+                ctx.restore();
             }
         });
     });
@@ -146,17 +159,19 @@ function drawNext() {
 }
 
 function arenaSweep() {
-    let rowCount = 1;
-    outer: for (let y = arena.length - 1; y >= 0; --y) {
-        for (let x = 0; x < arena[y].length; ++x) {
-            if (arena[y][x] === 0) {
-                continue outer;
-            }
+    let lines = 0;
+    for (let y = arena.length - 1; y >= 0; --y) {
+        if (arena[y].every(cell => cell !== 0)) {
+            const row = arena.splice(y, 1)[0].fill(0);
+            arena.unshift(row);
+            ++lines;
+            ++y; // 行を消したので同じyをもう一度チェック
         }
-        const row = arena.splice(y, 1)[0].fill(0);
-        arena.unshift(row);
-        player.score += rowCount * 10;
-        rowCount *= 2;
+    }
+    if (lines > 0) {
+        // 1列:10, 2列:30, 3列:60, 4列:100, それ以上は4列と同じ
+        const scoreTable = [0, 10, 30, 60, 100];
+        player.score += scoreTable[Math.min(lines, 4)];
     }
 }
 
@@ -258,6 +273,20 @@ document.addEventListener('keydown', event => {
     }
 });
 
-playerReset();
-updateScore();
-update();
+let isStarted = false;
+
+function startGame() {
+    arena.forEach(row => row.fill(0));
+    player.score = 0;
+    nextPiece = null;
+    playerReset();
+    updateScore();
+    if (!isStarted) {
+        isStarted = true;
+        update();
+    }
+}
+
+document.getElementById('start-btn').addEventListener('click', () => {
+    startGame();
+});
