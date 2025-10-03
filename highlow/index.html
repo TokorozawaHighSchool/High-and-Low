@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ハイアンドロー</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>ハイアンドロー</h1>
+        <div class="game-area">
+            <div class="current-card">
+                <h2>現在のカード</h2>
+                <div id="current-card-display"></div>
+            </div>
+            <div class="buttons">
+                <button id="high-btn">HIGH</button>
+                <button id="low-btn">LOW</button>
+            </div>
+            <div class="next-card">
+                <h2>次のカード</h2>
+                <div id="next-card-display"></div>
+            </div>
+        </div>
+        <div class="score-area">
+            <p>スコア: <span id="score">0</span></p>
+        </div>
+        <button id="start-btn">ゲーム開始</button>
+    </div>
+    <script src="highlow.js"></script>
+</body>
+</html>
