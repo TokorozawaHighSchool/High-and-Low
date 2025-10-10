@@ -23,10 +23,17 @@
                 <div id="next-card-display"></div>
             </div>
         </div>
-        <div class="score-area">
-            <p>スコア: <span id="score">0</span></p>
+        <div class="balance-area">
+            <span>残高: <span id="balance">500</span></span>
+        </div>
+        <div class="bet-area">
+            <label for="bet-input">掛け金: </label>
+            <input type="number" id="bet-input" min="1" value="100" step="1" style="width:80px;">
         </div>
         <button id="start-btn">ゲーム開始</button>
+        <div id="gameover-effect" class="gameover-effect">
+            <span class="gameover-text">GAME OVER</span>
+        </div>
     </div>
     <script src="highlow.js"></script>
 </body>

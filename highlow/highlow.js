@@ -10,17 +10,19 @@ class Card {
 
 class Game {
     constructor() {
-        this.score = 0;
+    this.balance = 500;
         this.currentCard = null;
         this.nextCard = null;
         this.isPlaying = false;
+        this.bet = 100;
     }
 
     start() {
-        this.score = 0;
-        this.isPlaying = true;
-        this.updateScore();
-        this.drawNewCard();
+    this.balance = 500;
+    this.isPlaying = true;
+    this.updateBalance();
+    this.updateBetFromInput();
+    this.drawNewCard();
     }
 
     drawNewCard() {
@@ -36,23 +38,67 @@ class Game {
     guess(isHigh) {
         if (!this.isPlaying) return;
 
-        const isCorrect = isHigh ? 
+    this.updateBetFromInput();
+        // 次のカードを表示
+        this.revealNextCard();
+
+        const isCorrect = isHigh ?
             this.nextCard.number > this.currentCard.number :
             this.nextCard.number < this.currentCard.number;
 
-        if (isCorrect) {
-            this.score += 100;
-            this.updateScore();
-            this.drawNewCard();
-        } else {
-            this.gameOver();
-        }
+        setTimeout(() => {
+            if (isCorrect) {
+                this.balance += this.bet;
+                this.updateBalance();
+                this.drawNewCard();
+            } else {
+                this.balance -= this.bet;
+                if (this.balance < 0) this.balance = 0;
+                this.updateBalance();
+                if (this.balance === 0) {
+                    this.gameOver();
+                } else {
+                    this.drawNewCard();
+                }
+            }
+        }, 900);
+    }
+    updateBetFromInput() {
+        const betInput = document.getElementById('bet-input');
+        let betValue = parseInt(betInput.value, 10);
+        if (isNaN(betValue) || betValue < 1) betValue = 1;
+        if (betValue > this.balance && this.balance > 0) betValue = this.balance;
+        this.bet = betValue;
+        betInput.value = betValue;
+    }
+
+    updateBalance() {
+        document.getElementById('balance').textContent = this.balance;
+    }
+
+    revealNextCard() {
+        const nextCardDisplay = document.getElementById('next-card-display');
+        nextCardDisplay.textContent = this.nextCard.toString();
     }
 
     gameOver() {
         this.isPlaying = false;
-        alert(`ゲームオーバー！\n最終スコア: ${this.score}`);
+        this.showGameOverEffect();
         this.hideNextCard();
+        setTimeout(() => {
+            alert(`ゲームオーバー！\n最終スコア: ${this.score}`);
+            this.hideGameOverEffect();
+        }, 1200);
+    }
+
+    showGameOverEffect() {
+        const effect = document.getElementById('gameover-effect');
+        if (effect) effect.classList.add('active');
+    }
+
+    hideGameOverEffect() {
+        const effect = document.getElementById('gameover-effect');
+        if (effect) effect.classList.remove('active');
     }
 
     updateDisplay() {
@@ -68,9 +114,9 @@ class Game {
         nextCardDisplay.textContent = '';
     }
 
-    updateScore() {
-        document.getElementById('score').textContent = this.score;
-    }
+    // updateScore() {
+    //     document.getElementById('score').textContent = this.score;
+    // }
 }
 
 // ゲームの初期化
