@@ -19,11 +19,167 @@ body {
 
 h1 {
     text-align: center;
-    color: #d4af37;
-    font-size: 2.5rem;
-    letter-spacing: 0.1em;
-    margin-bottom: 10px;
-    text-shadow: 2px 2px 8px #000, 0 0 10px #d4af37;
+    font-family: 'Bebas Neue', 'Segoe UI', sans-serif;
+    /* Responsive font size: min 2.2rem, ideal 6vw, max 4.2rem */
+    font-size: clamp(2.2rem, 6vw, 4.2rem);
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+    background: linear-gradient(90deg, #fff8dc 0%, #ffd54f 25%, #f0c14b 55%, #d4af37 80%, #b8860b 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 6px 18px rgba(0,0,0,0.6), 0 0 10px rgba(213, 175, 55, 0.45);
+    /* stronger glow + more noticeable wobble */
+    animation: titleGlow 1.8s ease-in-out infinite alternate, titleWobble 3s cubic-bezier(.2,.8,.2,1) infinite;
+}
+
+/* Sparkle effect when title is clicked */
+h1#title { position: relative; }
+
+/* Primary soft burst */
+h1#title.sparkle::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 260px;
+    height: 100px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    background: radial-gradient(circle at 15% 30%, rgba(255,250,210,0.98) 0px, rgba(255,235,150,0.85) 6px, transparent 18px),
+                radial-gradient(circle at 50% 18%, rgba(255,245,220,0.95) 0px, rgba(255,220,120,0.8) 8px, transparent 22px),
+                radial-gradient(circle at 82% 72%, rgba(255,240,200,0.9) 0px, rgba(255,205,90,0.7) 6px, transparent 18px);
+    animation: sparkleBurst 1s cubic-bezier(.2,.9,.3,1) forwards;
+    mix-blend-mode: screen;
+    opacity: 0;
+}
+
+/* Secondary quick twinkles (many small particles) */
+h1#title.sparkle::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 320px;
+    height: 120px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    /* multiple tiny spark dots at different positions */
+    background-image:
+        radial-gradient(circle at 8% 20%, rgba(255,255,230,0.95) 0px, transparent 4px),
+        radial-gradient(circle at 18% 65%, rgba(255,245,200,0.9) 0px, transparent 5px),
+        radial-gradient(circle at 30% 40%, rgba(255,255,230,0.95) 0px, transparent 4px),
+        radial-gradient(circle at 45% 22%, rgba(255,245,210,0.9) 0px, transparent 6px),
+        radial-gradient(circle at 60% 55%, rgba(255,250,220,0.9) 0px, transparent 4px),
+        radial-gradient(circle at 72% 30%, rgba(255,245,200,0.9) 0px, transparent 5px),
+        radial-gradient(circle at 88% 70%, rgba(255,255,230,0.95) 0px, transparent 4px);
+    background-size: 100% 100%;
+    mix-blend-mode: screen;
+    opacity: 0;
+    animation: sparkleTwinkle 1s ease-out forwards;
+}
+
+@keyframes sparkleBurst {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); filter: blur(2px); }
+    20% { opacity: 1; transform: translate(-50%, -52%) scale(1.06); filter: blur(0); }
+    50% { opacity: 0.95; transform: translate(-50%, -56%) scale(1.14); filter: blur(0); }
+    80% { opacity: 0.6; transform: translate(-50%, -60%) scale(1.18); filter: blur(0.6px); }
+    100% { opacity: 0; transform: translate(-50%, -68%) scale(1.24); filter: blur(1.2px); }
+}
+
+@keyframes sparkleTwinkle {
+    0% { opacity: 0; transform: translateY(0) scale(0.6) rotate(0deg); }
+    15% { opacity: 1; transform: translateY(-6px) scale(1) rotate(6deg); }
+    40% { opacity: 0.9; transform: translateY(-12px) scale(1.05) rotate(-4deg); }
+    70% { opacity: 0.5; transform: translateY(-18px) scale(1.08) rotate(2deg); }
+    100% { opacity: 0; transform: translateY(-26px) scale(1.12) rotate(8deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    h1#title.sparkle::after { animation: none; opacity: 1; }
+}
+
+/* Glow animation for title */
+@keyframes titleGlow {
+    0% {
+        filter: drop-shadow(0 0 10px rgba(255,220,120,0.22));
+        text-shadow: 0 6px 18px rgba(0,0,0,0.6), 0 0 8px rgba(255,215,120,0.18);
+    }
+    100% {
+        filter: drop-shadow(0 0 30px rgba(255,200,60,0.6));
+        text-shadow: 0 10px 28px rgba(0,0,0,0.78), 0 0 28px rgba(255,200,80,0.65);
+    }
+}
+
+/* Gentle horizontal wobble / ゆらぎ */
+@keyframes titleWobble {
+    0% { transform: translateX(0) rotate(0deg); }
+    15% { transform: translateX(-3px) rotate(-1deg); }
+    35% { transform: translateX(2.5px) rotate(0.8deg); }
+    55% { transform: translateX(-2px) rotate(-0.6deg); }
+    75% { transform: translateX(1.8px) rotate(0.5deg); }
+    100% { transform: translateX(0) rotate(0deg); }
+}
+
+/* Respect user's reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+    h1 {
+        animation: none;
+    }
+}
+
+/* Mobile optimizations */
+@media (max-width: 480px) {
+    .container {
+        margin: 18px auto;
+        padding: 18px 14px 16px 14px;
+        border-radius: 12px;
+    }
+    h1 {
+        font-size: clamp(1.6rem, 8vw, 2.6rem);
+        letter-spacing: 0.06em;
+        line-height: 1.05;
+        margin-bottom: 8px;
+    }
+    .game-area {
+        flex-direction: column;
+        gap: 12px;
+        margin: 18px 0;
+    }
+    #current-card-display, #next-card-display {
+        width: 100px;
+        height: 150px;
+        font-size: 1.8rem;
+    }
+    .buttons {
+        flex-direction: row;
+        gap: 10px;
+    }
+    button {
+        padding: 10px 18px;
+        font-size: 1rem;
+    }
+    .balance-area {
+        font-size: 1.1rem;
+        margin-bottom: 8px;
+    }
+}
+
+/* Start button idle wiggle until game starts */
+#start-btn.idle {
+    animation: startWiggle 1.2s ease-in-out infinite;
+}
+
+@keyframes startWiggle {
+    0% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-3px) rotate(-1deg); }
+    50% { transform: translateY(0) rotate(0.6deg); }
+    75% { transform: translateY(-2px) rotate(-0.6deg); }
+    100% { transform: translateY(0) rotate(0deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #start-btn.idle { animation: none; }
 }
 
 .game-area {
@@ -124,6 +280,80 @@ button:hover {
     color: #d4af37;
     font-weight: bold;
     text-shadow: 1px 1px 6px #000a;
+}
+
+.countdown {
+    margin-top: 6px;
+    font-size: 0.95rem;
+    color: #fff;
+    background: linear-gradient(180deg, rgba(200,20,20,0.95), rgba(160,5,5,0.95));
+    padding: 6px 10px;
+    border-radius: 10px;
+    display: inline-block;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.countdown.pulse {
+    animation: countdownPulse 1s ease-in-out infinite;
+}
+
+@keyframes countdownPulse {
+    0% { transform: scale(1); box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    50% { transform: scale(1.04); box-shadow: 0 8px 20px rgba(255,0,0,0.45); }
+    100% { transform: scale(1); box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+}
+
+/* Large overlay for last 5 seconds */
+.countdown-overlay {
+    position: fixed;
+    left: 50%;
+    top: 40%;
+    transform: translate(-50%, -50%);
+    font-size: 6.5rem;
+    color: #fff;
+    background: linear-gradient(180deg, rgba(200,20,20,0.95), rgba(160,5,5,0.95));
+    padding: 20px 28px;
+    border-radius: 18px;
+    text-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 18px rgba(255,120,80,0.7);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+}
+.countdown-overlay.show {
+    opacity: 1;
+    animation: overlayPulse 1s ease-in-out infinite;
+}
+
+@keyframes overlayPulse {
+    0% { transform: translate(-50%, -50%) scale(1); filter: drop-shadow(0 0 6px rgba(255,120,80,0.4)); }
+    50% { transform: translate(-50%, -52%) scale(1.18); filter: drop-shadow(0 0 28px rgba(255,100,60,0.8)); }
+    100% { transform: translate(-50%, -50%) scale(1); filter: drop-shadow(0 0 6px rgba(255,120,80,0.4)); }
+}
+
+@media (max-width: 480px) {
+    .countdown-overlay { font-size: 4.2rem; padding: 14px 18px; }
+}
+
+/* 負の残高時の演出 */
+.balance-area.negative {
+    color: #ffebee;
+}
+
+#balance.negative {
+    color: #ff5252;
+    text-shadow: 0 0 8px #ff1744, 0 0 16px rgba(255,87,34,0.6);
+    animation: panic 0.12s linear infinite;
+}
+
+@keyframes panic {
+    0% { transform: translateX(0) rotate(0deg); }
+    25% { transform: translateX(-2px) rotate(-1deg); }
+    50% { transform: translateX(2px) rotate(1deg); }
+    75% { transform: translateX(-2px) rotate(-1deg); }
+    100% { transform: translateX(0) rotate(0deg); }
 }
 
 .bet-area {

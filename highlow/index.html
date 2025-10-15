@@ -5,10 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ハイアンドロー</title>
     <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
-        <h1>ハイアンドロー</h1>
+    <h1 id="title">HIGH&LOW</h1>
         <div class="game-area">
             <div class="current-card">
                 <h2>現在のカード</h2>
@@ -24,13 +25,17 @@
             </div>
         </div>
         <div class="balance-area">
-            <span>残高: <span id="balance">500</span></span>
+            <span>残高: <span id="balance">0</span></span>
+            <div id="countdown" class="countdown" style="display:none;">残り: 30s</div>
         </div>
+    <!-- Large overlay countdown for last 5 seconds -->
+    <div id="countdown-overlay" class="countdown-overlay" style="display:none;">5</div>
         <div class="bet-area">
             <label for="bet-input">掛け金: </label>
             <input type="number" id="bet-input" min="1" value="100" step="1" style="width:80px;">
         </div>
-        <button id="start-btn">ゲーム開始</button>
+    <button id="start-btn">ゲーム開始</button>
+    <button id="earn-btn">お金を稼ぐ (1クリック = 1円)</button>
         <div id="gameover-effect" class="gameover-effect">
             <span class="gameover-text">GAME OVER</span>
         </div>
