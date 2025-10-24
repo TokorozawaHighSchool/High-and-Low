@@ -10,6 +10,8 @@
 <body>
     <div class="container">
     <h1 id="title">HIGH&LOW</h1>
+    <button id="missions-btn" class="missions-btn">ミッション</button>
+    <button id="reset-btn" class="reset-btn">リセット</button>
         <div class="game-area">
             <div class="current-card">
                 <h2>現在のカード</h2>
@@ -25,6 +27,7 @@
             </div>
         </div>
         <div class="balance-area">
+            <button id="earn-btn">お金を稼ぐ (1クリック = 1円)</button>
             <span>残高: <span id="balance">0</span></span>
             <div id="countdown" class="countdown" style="display:none;">残り: 30s</div>
         </div>
@@ -35,10 +38,17 @@
             <input type="number" id="bet-input" min="1" value="100" step="1" style="width:80px;">
         </div>
     <button id="start-btn">ゲーム開始</button>
-    <button id="earn-btn">お金を稼ぐ (1クリック = 1円)</button>
         <div id="gameover-effect" class="gameover-effect">
             <span class="gameover-text">GAME OVER</span>
         </div>
+            <!-- Missions panel -->
+            <div id="missions-panel" class="missions-panel" style="display:none;">
+                <div class="missions-panel-inner">
+                    <h2>ミッション</h2>
+                    <ul id="missions-list"></ul>
+                    <button id="close-missions">閉じる</button>
+                </div>
+            </div>
     </div>
     <script src="highlow.js"></script>
 </body>

@@ -17,6 +17,55 @@ body {
     position: relative;
 }
 
+/* Missions button (top-right) */
+.missions-btn {
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #ffd54f 0%, #f0c14b 100%);
+    color: #472b00;
+    border: 2px solid #d4af37;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.reset-btn {
+    position: absolute;
+    right: 110px; /* sit left of missions button */
+    top: 18px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #ff8a65 0%, #d84315 100%);
+    color: #fff;
+    border: 2px solid rgba(0,0,0,0.2);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* Missions panel */
+.missions-panel {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(20,20,20,0.98);
+    border: 3px solid #d4af37;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+    width: 420px;
+    max-width: 90vw;
+    z-index: 3000;
+    border-radius: 12px;
+    padding: 18px;
+}
+.missions-panel-inner h2 { text-align:center; margin-top: 6px; }
+.missions-panel ul { list-style: none; padding: 6px 10px; max-height: 320px; overflow:auto; }
+.missions-panel li { padding: 8px 6px; border-bottom: 1px dashed rgba(212,175,55,0.12); display:flex; justify-content:space-between; align-items:center; }
+.missions-panel button { margin-top: 12px; display:block; margin-left:auto; }
+
 h1 {
     text-align: center;
     font-family: 'Bebas Neue', 'Segoe UI', sans-serif;
@@ -280,6 +329,31 @@ button:hover {
     color: #d4af37;
     font-weight: bold;
     text-shadow: 1px 1px 6px #000a;
+}
+
+/* Earn button placed centered above the balance */
+.balance-area {
+    position: relative; /* establish containing block for absolutely positioned button */
+    padding-top: 60px; /* slightly increased space for the earn button above */
+}
+
+#earn-btn {
+    position: absolute;
+    top: 12px; /* slightly lower to give more gap between button and balance */
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    padding: 8px 14px;
+    font-size: 0.95rem;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #ffd54f 0%, #f0c14b 100%);
+    color: #472b00;
+    border: 2px solid #d4af37;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.45), 0 0 0 2px rgba(212,175,55,0.12);
+}
+
+#earn-btn:hover {
+    transform: translateX(-50%) scale(1.03);
 }
 
 .countdown {
