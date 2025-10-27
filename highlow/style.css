@@ -401,6 +401,14 @@ button:hover {
     animation: overlayPulse 1s ease-in-out infinite;
 }
 
+/* Mini-game styles */
+.minigame-area { text-align:center; margin-top: 12px; color: #fffde7; }
+#minigame-reward { font-size:0.95rem; margin-top:6px; color:#ffd54f }
+.minigame-panel { display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:10px; }
+#minigame-canvas { background: #081618; border: 3px solid #d4af37; border-radius:8px; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+.minigame-controls { display:flex; gap:10px; align-items:center; color:#fffde7; }
+.minigame-controls button { padding:6px 12px; font-size:0.95rem; }
+
 @keyframes overlayPulse {
     0% { transform: translate(-50%, -50%) scale(1); filter: drop-shadow(0 0 6px rgba(255,120,80,0.4)); }
     50% { transform: translate(-50%, -52%) scale(1.18); filter: drop-shadow(0 0 28px rgba(255,100,60,0.8)); }

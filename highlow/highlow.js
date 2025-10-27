@@ -23,13 +23,20 @@ class Game {
     this.streakFlipFactor = 0.08; // 8% per win
     this.streakFlipCap = 0.5; // 最大 50% の確率で勝ちをひっくり返す
     this.streakThreshold = 5; // 連勝何回目からペナルティを開始するか
+    // betting-based penalty: if bet is large relative to balance, increase flip chance
+    // betPenaltyThreshold: 比率(例:0.25 = 25%) を超えた分からペナルティを開始
+    this.betPenaltyThreshold = 0.25;
+    // betPenaltyFactor: (betRatio - threshold) に掛ける係数（調整用）
+    this.betPenaltyFactor = 0.6;
+    // betPenaltyCap: 掛け金ベースのペナルティ確率上限
+    this.betPenaltyCap = 0.75;
     // --- Missions system ---
     this.missions = [
         { id: 'm1', title: '5連勝達成', desc: '5連勝を達成する', type: 'streak', target: 5, progress: 0, reward: 1000, completed: false },
         { id: 'm2', title: '累計収益: 10000円', desc: '累計で合計10000円稼ぐ', type: 'totalEarned', target: 10000, progress: 0, reward: 5000, completed: false },
     { id: 'm3', title: 'はじめの10回', desc: '10回プレイしてみよう', type: 'plays', target: 10, progress: 0, reward: 200, completed: false },
     // click mission: start with 100 clicks
-    { id: 'click_100', title: 'クリックチャレンジ: 100回', desc: 'クリックを合計で100回行う', type: 'clicks', target: 100, progress: 0, reward: 100, completed: false }
+    { id: 'click_100', title: 'クリックチャレンジ: 100回', desc: 'クリックを合計で100回行う', type: 'clicks', target: 100, progress: 0, reward: 200, completed: false }
     ];
     // Tracks cumulative earned across session (used for mission m2)
     this.cumulativeEarned = 0;
@@ -70,13 +77,30 @@ class Game {
             this.nextCard.number > this.currentCard.number :
             this.nextCard.number < this.currentCard.number;
 
-        // If the guess would be correct, there is a chance (scaled by winStreak)
-        // that the system will make it incorrect by adjusting nextCard to an
-        // unfavorable value before revealing.
-        // only start applying penalty once the winStreak reaches threshold
-        if (isCorrect && this.winStreak >= this.streakThreshold) {
-            const effectiveStreak = this.winStreak - (this.streakThreshold - 1); // 5連勝目が1段目
-            const flipChance = Math.min(this.streakFlipFactor * effectiveStreak, this.streakFlipCap);
+        // If the guess would be correct, there is a chance it will be made incorrect.
+        // We combine two penalty sources:
+        //  - streak-based penalty (existing)
+        //  - bet-size-based penalty: when bet is large relative to balance
+        if (isCorrect) {
+            let flipChance = 0;
+            // streak-based penalty (only starts after threshold)
+            if (this.winStreak >= this.streakThreshold) {
+                const effectiveStreak = this.winStreak - (this.streakThreshold - 1); // 5連勝目が1段目
+                flipChance += Math.min(this.streakFlipFactor * effectiveStreak, this.streakFlipCap);
+            }
+            // bet-size-based penalty
+            let betPenaltyChance = 0;
+            if (this.balance > 0) {
+                const betRatio = this.bet / this.balance; // e.g. 0.5 = half the balance
+                if (betRatio > this.betPenaltyThreshold) {
+                    betPenaltyChance = Math.min((betRatio - this.betPenaltyThreshold) * this.betPenaltyFactor, this.betPenaltyCap);
+                }
+            } else if (this.bet > 0) {
+                // if balance is zero or negative, treat as high-risk
+                betPenaltyChance = this.betPenaltyCap;
+            }
+            flipChance = Math.min(flipChance + betPenaltyChance, 0.95);
+
             if (Math.random() < flipChance) {
                 // Force nextCard to a value that makes the guess incorrect.
                 const cur = this.currentCard.number;
@@ -218,10 +242,25 @@ class Game {
                 if (newMission.progress >= newMission.target) this.completeMission(newMission.id);
             }
         }
+        // If this was a plays mission, spawn next scaled mission: target * 10, reward * 10
+        if (m.type === 'plays') {
+            const nextTarget = m.target * 10;
+            const nextReward = m.reward * 10;
+            const newId = `plays_${nextTarget}`;
+            if (!this.missions.find(x => x.id === newId)) {
+                const newMission = { id: newId, title: `はじめの${nextTarget}回`, desc: `${nextTarget}回プレイしてみよう`, type: 'plays', target: nextTarget, progress: 0, reward: nextReward, completed: false };
+                // If player already has progress, set it
+                newMission.progress = 0;
+                this.missions.push(newMission);
+                if (newMission.progress >= newMission.target) this.completeMission(newMission.id);
+                setTimeout(() => { alert(`新しいプレイミッション追加: ${newMission.title}\n報酬: ${newMission.reward}円`); }, 300);
+            }
+        }
         // If this was a clicks mission, spawn next scaled mission and double clickValue
         if (m.type === 'clicks') {
             const nextTarget = m.target * 5;
-            const nextReward = m.target; // reward equals the number of clicks of the target
+            // more generous reward: reward = nextTarget * 2
+            const nextReward = nextTarget * 2;
             const newId = `click_${nextTarget}`;
             if (!this.missions.find(x => x.id === newId)) {
                 const newMission = { id: newId, title: `クリックチャレンジ: ${nextTarget}回`, desc: `クリックを合計で${nextTarget}回行う`, type: 'clicks', target: nextTarget, progress: this.totalClicks, reward: nextReward, completed: false };
@@ -230,6 +269,20 @@ class Game {
             }
             // double the clickValue upon completion
             this.clickValue *= 2;
+        }
+        // If this was a streak mission, spawn next milestone: +5 target and reward x5
+        if (m.type === 'streak') {
+            const nextTarget = m.target + 5;
+            const nextReward = m.reward * 5;
+            const newId = `streak_${nextTarget}`;
+            if (!this.missions.find(x => x.id === newId)) {
+                const newMission = { id: newId, title: `${nextTarget}連勝達成`, desc: `${nextTarget}連勝を達成する`, type: 'streak', target: nextTarget, progress: this.winStreak, reward: nextReward, completed: false };
+                this.missions.push(newMission);
+                // If already achieved (unlikely), complete immediately
+                if (newMission.progress >= newMission.target) this.completeMission(newMission.id);
+                // show short alert about new streak mission
+                setTimeout(() => { alert(`新しいミッション追加: ${newMission.title}\n報酬: ${newMission.reward}円`); }, 300);
+            }
         }
         // save after mission completion and spawning
         this.saveState();
@@ -285,7 +338,7 @@ class Game {
             { id: 'm1', title: '5連勝達成', desc: '5連勝を達成する', type: 'streak', target: 5, progress: 0, reward: 1000, completed: false },
             { id: 'm2', title: '累計収益: 10000円', desc: '累計で合計10000円稼ぐ', type: 'totalEarned', target: 10000, progress: 0, reward: 5000, completed: false },
             { id: 'm3', title: 'はじめの10回', desc: '10回プレイしてみよう', type: 'plays', target: 10, progress: 0, reward: 200, completed: false },
-            { id: 'click_100', title: 'クリックチャレンジ: 100回', desc: 'クリックを合計で100回行う', type: 'clicks', target: 100, progress: 0, reward: 100, completed: false }
+            { id: 'click_100', title: 'クリックチャレンジ: 100回', desc: 'クリックを合計で100回行う', type: 'clicks', target: 100, progress: 0, reward: 200, completed: false }
         ];
         this.cumulativeEarned = 0;
         this.clickValue = 1;
@@ -490,6 +543,150 @@ if (earnBtn) {
     earnBtn.addEventListener('click', () => {
         game.earnOne();
     });
+
+// --- Mini-game: click to float and avoid obstacles ---
+class MiniGame {
+    constructor(containerIds, gameInstance) {
+        this.canvas = document.getElementById(containerIds.canvas);
+        this.ctx = this.canvas.getContext('2d');
+        this.startBtn = document.getElementById(containerIds.startButton);
+        this.exitBtn = document.getElementById(containerIds.exitButton);
+        this.timerEl = document.getElementById(containerIds.timer);
+        this.panel = document.getElementById('minigame-panel');
+        this.isRunning = false;
+        this.player = { x: 80, y: this.canvas.height/2, vy: 0, radius: 12 };
+    this._stopped = false; // guard to prevent double stop
+        this.gravity = 0.6;
+        this.jumpPower = -9;
+        this.obstacles = [];
+        this.spawnInterval = 1500; // ms
+        this.lastSpawn = 0;
+        this.lastTime = 0;
+        this.elapsed = 0;
+        this.rewardPerSecond = 10; // yen per second
+        this.game = gameInstance;
+
+        this.startBtn.addEventListener('click', () => this.start());
+        this.exitBtn.addEventListener('click', () => this.stop(true));
+        // click/tap to jump
+        this.canvas.addEventListener('mousedown', () => this.jump());
+        this.canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); this.jump(); });
+    }
+
+    start() {
+        this.panel.style.display = 'flex';
+    this.isRunning = true;
+    this._stopped = false;
+        this.obstacles = [];
+        this.player.y = this.canvas.height/2;
+        this.player.vy = 0;
+        this.elapsed = 0;
+        this.lastTime = performance.now();
+        this.lastSpawn = this.lastTime + 600;
+        requestAnimationFrame((t)=>this.loop(t));
+    }
+
+    stop(force=false) {
+        if (this._stopped) return;
+        this._stopped = true;
+        this.isRunning = false;
+        // reward based on elapsed seconds — use 0.1s precision to avoid 0 reward on quick exits
+        const secsRounded = Math.max(0, Math.round(this.elapsed * 10) / 10);
+        const reward = Math.max(0, Math.floor(secsRounded * this.rewardPerSecond));
+        this.game.balance += reward;
+        this.game.cumulativeEarned += reward;
+        this.game.updateBalance();
+        alert(`ミニゲーム終了: 生存 ${this.elapsed.toFixed(1)}s\n報酬: ${reward}円`);
+        this.panel.style.display = 'none';
+        this.timerEl.textContent = '0.0';
+    }
+
+    jump() {
+        if (!this.isRunning) return;
+        this.player.vy = this.jumpPower;
+    }
+
+    spawnObstacle() {
+        const h = 28 + Math.random() * 80;
+        const gap = 90; // gap for the player
+        const topH = Math.random() * (this.canvas.height - gap - 40);
+        // obstacle represented as top rect and bottom rect (like Flappy Bird)
+        this.obstacles.push({ x: this.canvas.width + 20, w: 28, topH: topH, gap: gap, speed: 160 });
+    }
+
+    loop(timestamp) {
+        if (!this.isRunning) return;
+        const dt = (timestamp - this.lastTime) / 1000;
+        this.lastTime = timestamp;
+        this.elapsed += dt;
+        // physics
+        this.player.vy += this.gravity;
+        this.player.y += this.player.vy;
+        // spawn
+        if (timestamp - this.lastSpawn > this.spawnInterval) {
+            this.spawnObstacle();
+            this.lastSpawn = timestamp;
+        }
+        // move obstacles
+        for (let obs of this.obstacles) {
+            obs.x -= obs.speed * dt;
+        }
+        // remove off-screen
+        this.obstacles = this.obstacles.filter(o => o.x + o.w > -10);
+        // collision
+        for (let o of this.obstacles) {
+            // top rect
+            if (this.player.x + this.player.radius > o.x && this.player.x - this.player.radius < o.x + o.w) {
+                if (this.player.y - this.player.radius < o.topH || this.player.y + this.player.radius > o.topH + o.gap) {
+                    // hit
+                    this.isRunning = false;
+                    // still update elapsed before stop
+                    this.timerEl.textContent = this.elapsed.toFixed(1);
+                    setTimeout(()=> this.stop(false), 50);
+                    return;
+                }
+            }
+        }
+        // bounds
+        if (this.player.y - this.player.radius < 0) { this.player.y = this.player.radius; this.player.vy = 0; }
+        if (this.player.y + this.player.radius > this.canvas.height) { this.player.y = this.canvas.height - this.player.radius; this.player.vy = 0; }
+
+        // draw
+        this.draw();
+        this.timerEl.textContent = this.elapsed.toFixed(1);
+        requestAnimationFrame((t)=>this.loop(t));
+    }
+
+    draw() {
+        const ctx = this.ctx;
+        ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+        // background
+        ctx.fillStyle = '#071818';
+        ctx.fillRect(0,0,this.canvas.width,this.canvas.height);
+        // player
+        ctx.fillStyle = '#ffd54f';
+        ctx.beginPath();
+        ctx.arc(this.player.x, this.player.y, this.player.radius, 0, Math.PI*2);
+        ctx.fill();
+        // obstacles
+        ctx.fillStyle = '#b71c1c';
+        for (let o of this.obstacles) {
+            ctx.fillRect(o.x, 0, o.w, o.topH);
+            ctx.fillRect(o.x, o.topH + o.gap, o.w, this.canvas.height - (o.topH + o.gap));
+        }
+    }
+}
+
+const mini = new MiniGame({ canvas: 'minigame-canvas', startButton: 'minigame-start', exitButton: 'minigame-exit', timer: 'minigame-timer' }, game);
+
+// launcher button
+const launchBtn = document.getElementById('minigame-launch');
+if (launchBtn) {
+    launchBtn.addEventListener('click', () => {
+        const panel = document.getElementById('minigame-panel');
+        panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+    });
+}
 }
 
 // Missions UI handlers

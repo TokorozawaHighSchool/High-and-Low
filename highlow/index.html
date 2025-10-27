@@ -31,6 +31,20 @@
             <span>残高: <span id="balance">0</span></span>
             <div id="countdown" class="countdown" style="display:none;">残り: 30s</div>
         </div>
+        <!-- Mini-game launcher -->
+        <div class="minigame-area">
+            <button id="minigame-launch">ミニゲーム: 浮遊回避</button>
+            <div id="minigame-reward">生存報酬: 10円/秒</div>
+        </div>
+        <!-- Mini-game canvas (hidden until started) -->
+        <div id="minigame-panel" class="minigame-panel" style="display:none;">
+            <canvas id="minigame-canvas" width="480" height="320"></canvas>
+            <div class="minigame-controls">
+                <button id="minigame-start">プレイ開始</button>
+                <button id="minigame-exit">終了</button>
+                <div>生存時間: <span id="minigame-timer">0.0</span>s</div>
+            </div>
+        </div>
     <!-- Large overlay countdown for last 5 seconds -->
     <div id="countdown-overlay" class="countdown-overlay" style="display:none;">5</div>
         <div class="bet-area">
