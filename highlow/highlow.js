@@ -17,6 +17,7 @@ class Game {
         this.bet = 100;
     this.titleBoostUsed = false; // 一度だけ使えるブーストフラグ
     this.countdownTimer = null;
+    this._gameOverTimeout = null; // guard for pending gameOver callback
     this.countdownRemaining = 0;
     this.winStreak = 0; // 連勝カウント
     // tuning: how much the system should try to flip a player's correct guess per streak
@@ -321,6 +322,13 @@ class Game {
     resetState() {
         // clear storage
         try { localStorage.removeItem('highlow_state'); } catch (e) {}
+    // ensure any running countdown is stopped to prevent it from later triggering gameOver
+    if (this.stopCountdown) this.stopCountdown();
+        // cancel any pending gameOver callback to avoid repeated gameOver effects after reset
+        if (this._gameOverTimeout) {
+            clearTimeout(this._gameOverTimeout);
+            this._gameOverTimeout = null;
+        }
         // reset properties to initial defaults
         this.balance = 0;
         this.currentCard = null;
@@ -451,14 +459,19 @@ class Game {
     }
 
     gameOver() {
+        // prevent duplicate gameOver sequences
+        if (this._gameOverTimeout) return;
         this.isPlaying = false;
         this.showGameOverEffect();
         this.hideNextCard();
-    // stop countdown (if running) and reset balance to 0
-    if (this.stopCountdown) this.stopCountdown();
-    this.balance = 0;
-    this.updateBalance();
-        setTimeout(() => {
+        // stop countdown (if running) and reset balance to 0
+        if (this.stopCountdown) this.stopCountdown();
+        this.balance = 0;
+        this.updateBalance();
+        // schedule end-of-game UI after a short delay; store timeout id so reset can cancel it
+        this._gameOverTimeout = setTimeout(() => {
+            // clear guard first
+            this._gameOverTimeout = null;
             alert(`ゲームオーバー！\n最終スコア: ${this.score}`);
             this.hideGameOverEffect();
             // re-enable start button idle wiggle
@@ -557,7 +570,9 @@ class MiniGame {
         this.player = { x: 80, y: this.canvas.height/2, vy: 0, radius: 12 };
     this._stopped = false; // guard to prevent double stop
         this.gravity = 0.6;
-        this.jumpPower = -9;
+    this.jumpPower = -6; // smaller single-click impulse for finer control
+    this.thrusting = false; // whether mouse/touch is holding thrust
+    this.thrustAccel = -26; // continuous upward acceleration (px/s^2)
         this.obstacles = [];
         this.spawnInterval = 1500; // ms
         this.lastSpawn = 0;
@@ -566,11 +581,30 @@ class MiniGame {
         this.rewardPerSecond = 10; // yen per second
         this.game = gameInstance;
 
-        this.startBtn.addEventListener('click', () => this.start());
-        this.exitBtn.addEventListener('click', () => this.stop(true));
-        // click/tap to jump
-        this.canvas.addEventListener('mousedown', () => this.jump());
-        this.canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); this.jump(); });
+        // high score tracking (seconds)
+        this.highScoreKey = 'minigame_highscore';
+        this.highScore = parseFloat(localStorage.getItem(this.highScoreKey) || '0') || 0;
+        // create or find a small highscore element in the panel controls
+        this.highScoreEl = document.createElement('div');
+        this.highScoreEl.style.fontSize = '0.9rem';
+        this.highScoreEl.style.color = '#ffd54f';
+        this.highScoreEl.style.marginLeft = '10px';
+        this.highScoreEl.style.alignSelf = 'center';
+        this.highScoreEl.textContent = `HS: ${this.highScore.toFixed(1)}s`;
+        const controls = document.querySelector('.minigame-controls');
+        if (controls) {
+            controls.appendChild(this.highScoreEl);
+        }
+
+    this.startBtn.addEventListener('click', () => this.start());
+    this.exitBtn.addEventListener('click', () => this.stop(true));
+    // click/tap: press and hold to apply continuous small upward thrust; quick tap gives a small bump
+    this.canvas.addEventListener('mousedown', (e) => { e.preventDefault(); this.startThrust(); });
+    this.canvas.addEventListener('mouseup', () => this.stopThrust());
+    this.canvas.addEventListener('mouseleave', () => this.stopThrust());
+    this.canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); this.startThrust(); });
+    this.canvas.addEventListener('touchend', () => this.stopThrust());
+    this.canvas.addEventListener('touchcancel', () => this.stopThrust());
     }
 
     start() {
@@ -598,12 +632,30 @@ class MiniGame {
         this.game.updateBalance();
         alert(`ミニゲーム終了: 生存 ${this.elapsed.toFixed(1)}s\n報酬: ${reward}円`);
         this.panel.style.display = 'none';
-        this.timerEl.textContent = '0.0';
+    this.timerEl.textContent = '0.0';
+    // update high score if beat (reuse secsRounded computed above)
+    if (secsRounded > this.highScore) {
+            this.highScore = secsRounded;
+            try { localStorage.setItem(this.highScoreKey, this.highScore.toString()); } catch (e) {}
+            if (this.highScoreEl) this.highScoreEl.textContent = `HS: ${this.highScore.toFixed(1)}s`;
+        }
     }
 
     jump() {
+        // single quick tap: small instant bump
         if (!this.isRunning) return;
         this.player.vy = this.jumpPower;
+    }
+
+    startThrust() {
+        if (!this.isRunning) return;
+        // small immediate bump on press to make short taps feel responsive
+        this.player.vy = Math.min(this.player.vy, this.jumpPower);
+        this.thrusting = true;
+    }
+
+    stopThrust() {
+        this.thrusting = false;
     }
 
     spawnObstacle() {
@@ -620,6 +672,10 @@ class MiniGame {
         this.lastTime = timestamp;
         this.elapsed += dt;
         // physics
+        // apply continuous thrust if pressing (gives fine-grained control)
+        if (this.thrusting) {
+            this.player.vy += this.thrustAccel * dt;
+        }
         this.player.vy += this.gravity;
         this.player.y += this.player.vy;
         // spawn

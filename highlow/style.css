@@ -34,16 +34,25 @@ body {
 
 .reset-btn {
     position: absolute;
-    right: 110px; /* sit left of missions button */
-    top: 18px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    background: linear-gradient(180deg, #ff8a65 0%, #d84315 100%);
-    color: #fff;
-    border: 2px solid rgba(0,0,0,0.2);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    /* move to a less prominent spot: slight left and up compared to missions button */
+    right: 150px;
+    top: 14px;
+    padding: 6px 10px; /* slightly smaller */
+    border-radius: 6px;
+    /* softer, muted look */
+    background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(200,200,200,0.04) 100%);
+    color: rgba(255,255,255,0.75);
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: none; /* remove heavy shadow to be less attention-grabbing */
     cursor: pointer;
-    font-weight: bold;
+    font-weight: 600;
+    font-size: 0.95rem;
+    opacity: 0.85;
+}
+
+/* On small screens keep it hidden to avoid crowding */
+@media (max-width: 480px) {
+    .reset-btn { display: none; }
 }
 
 /* Missions panel */
