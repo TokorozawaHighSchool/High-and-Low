@@ -33,12 +33,12 @@
         </div>
         <!-- Mini-game launcher -->
         <div class="minigame-area">
-            <button id="minigame-launch">ミニゲーム: 浮遊回避</button>
+            <button id="minigame-launch" disabled>ミニゲーム: 浮遊回避 (ロック中)</button>
             <div id="minigame-reward">生存報酬: 10円/秒</div>
         </div>
         <!-- Mini-game canvas (hidden until started) -->
         <div id="minigame-panel" class="minigame-panel" style="display:none;">
-            <canvas id="minigame-canvas" width="480" height="320"></canvas>
+            <canvas id="minigame-canvas" width="480" height="320" style="touch-action:none;-ms-touch-action:none;"></canvas>
             <div class="minigame-controls">
                 <button id="minigame-start">プレイ開始</button>
                 <button id="minigame-exit">終了</button>
@@ -65,5 +65,7 @@
             </div>
     </div>
     <script src="highlow/highlow.js"></script>
+    <!-- Toast container for in-page notifications -->
+    <div id="toast" style="position:fixed;left:50%;transform:translateX(-50%);bottom:24px;display:none;background:rgba(0,0,0,0.8);color:#fff;padding:12px 18px;border-radius:8px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,0.4);z-index:9999;">通知</div>
 </body>
 </html>

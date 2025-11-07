@@ -16,6 +16,9 @@ class Game {
         this.isPlaying = false;
         this.bet = 100;
     this.titleBoostUsed = false; // 一度だけ使えるブーストフラグ
+    // Mini-game unlock state: unlocked when cumulativeEarned >= miniUnlockThreshold
+    this.miniUnlockThreshold = 1000;
+    this.minigameUnlocked = false;
     this.countdownTimer = null;
     this._gameOverTimeout = null; // guard for pending gameOver callback
     this.countdownRemaining = 0;
@@ -198,6 +201,61 @@ class Game {
         });
         this.renderMissions();
     this.saveState();
+    // check if mini-game should be unlocked
+    this.checkMiniUnlock();
+    }
+
+    // Check and apply mini-game unlock when threshold reached
+    checkMiniUnlock() {
+        try {
+            const launchBtn = document.getElementById('minigame-launch');
+            if (!this.minigameUnlocked && this.cumulativeEarned >= this.miniUnlockThreshold) {
+                this.minigameUnlocked = true;
+                // enable launcher UI
+                if (launchBtn) {
+                    launchBtn.disabled = false;
+                    launchBtn.textContent = 'ミニゲーム: 浮遊回避 (解放)';
+                }
+                // notify player with in-page toast
+                this.showToast(`ミニゲーム「浮遊回避」が解放されました！\n累計獲得: ${this.cumulativeEarned}円`);
+                this.saveState();
+            } else {
+                // keep UI locked if not unlocked yet
+                if (launchBtn) {
+                    launchBtn.disabled = !this.minigameUnlocked;
+                    if (!this.minigameUnlocked) launchBtn.textContent = 'ミニゲーム: 浮遊回避 (ロック中)';
+                }
+            }
+        } catch (e) {
+            console.warn('checkMiniUnlock failed', e);
+        }
+    }
+
+    // Simple toast helper — shows message for 3s with fade-out
+    showToast(msg, ms = 3000) {
+        try {
+            const el = document.getElementById('toast');
+            if (!el) {
+                // fallback to alert
+                alert(msg);
+                return;
+            }
+            el.style.transition = 'opacity 300ms ease, transform 300ms ease';
+            el.style.whiteSpace = 'pre-line';
+            el.textContent = msg;
+            el.style.display = 'block';
+            el.style.opacity = '1';
+            el.style.transform = 'translateX(-50%) translateY(0)';
+            // hide after ms
+            clearTimeout(this._toastTimeout);
+            this._toastTimeout = setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateX(-50%) translateY(8px)';
+                setTimeout(() => { el.style.display = 'none'; }, 350);
+            }, ms);
+        } catch (e) {
+            console.warn('showToast failed', e);
+        }
     }
 
     onPlay() {
@@ -516,6 +574,8 @@ game.loadState();
 // reflect loaded state in UI
 game.updateBalance();
 game.renderMissions();
+// ensure mini-game launcher reflects saved unlock state
+game.checkMiniUnlock();
 
 // 初期状態でスタートボタンを揺らす
 const startBtnInit = document.getElementById('start-btn');
@@ -599,12 +659,69 @@ class MiniGame {
     this.startBtn.addEventListener('click', () => this.start());
     this.exitBtn.addEventListener('click', () => this.stop(true));
     // click/tap: press and hold to apply continuous small upward thrust; quick tap gives a small bump
-    this.canvas.addEventListener('mousedown', (e) => { e.preventDefault(); this.startThrust(); });
-    this.canvas.addEventListener('mouseup', () => this.stopThrust());
-    this.canvas.addEventListener('mouseleave', () => this.stopThrust());
-    this.canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); this.startThrust(); });
-    this.canvas.addEventListener('touchend', () => this.stopThrust());
-    this.canvas.addEventListener('touchcancel', () => this.stopThrust());
+    // Input handling: short tap -> small instantaneous bump, long press -> continuous thrust
+    this._pressStart = 0;
+    this._longPressThreshold = 180; // ms
+
+    // Use Pointer Events (pointerdown/up/cancel/leave) to handle mouse and touch consistently
+    // ensure canvas doesn't allow browser touch gestures to steal pointer events (Chrome)
+    try { this.canvas.style.touchAction = 'none'; } catch (e) {}
+    this.canvas.addEventListener('pointerdown', (e) => {
+        // only handle primary button/pointer
+        if (e.isPrimary === false) return;
+        // capture the pointer so we continue receiving events even if pointer moves outside
+        try { e.target.setPointerCapture(e.pointerId); } catch (err) {}
+        e.preventDefault();
+        this._pressStart = performance.now();
+        this._pointerStartTimeout = setTimeout(() => { if (this._pressStart) this.startThrust(); }, this._longPressThreshold);
+    });
+    this.canvas.addEventListener('pointerup', (e) => {
+        if (e.isPrimary === false) return;
+        clearTimeout(this._pointerStartTimeout);
+        const dur = performance.now() - (this._pressStart || 0);
+        if (dur < this._longPressThreshold) {
+            this.jump();
+        } else {
+            this.stopThrust();
+        }
+        this._pressStart = 0;
+    });
+    // pointercancel and pointerleave should cancel any pending long-press and stop thrust
+    this.canvas.addEventListener('pointercancel', (e) => {
+        if (e.isPrimary === false) return;
+        clearTimeout(this._pointerStartTimeout);
+        if (this.thrusting) this.stopThrust();
+        this._pressStart = 0;
+    });
+    this.canvas.addEventListener('pointerleave', (e) => {
+        if (e.isPrimary === false) return;
+        clearTimeout(this._pointerStartTimeout);
+        if (this.thrusting) this.stopThrust();
+        this._pressStart = 0;
+    });
+
+    // Fallback: also attach touch listeners as non-passive to ensure Chrome on some devices
+    // delivers touch events and prevents default gestures from stealing the input.
+    try {
+        this.canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this._pressStart = performance.now();
+            this._touchStartTimeout = setTimeout(() => { if (this._pressStart) this.startThrust(); }, this._longPressThreshold);
+        }, { passive: false });
+        this.canvas.addEventListener('touchend', (e) => {
+            clearTimeout(this._touchStartTimeout);
+            const dur = performance.now() - (this._pressStart || 0);
+            if (dur < this._longPressThreshold) this.jump(); else this.stopThrust();
+            this._pressStart = 0;
+        }, { passive: false });
+        this.canvas.addEventListener('touchcancel', (e) => {
+            clearTimeout(this._touchStartTimeout);
+            if (this.thrusting) this.stopThrust();
+            this._pressStart = 0;
+        }, { passive: false });
+    } catch (e) {
+        // ignore if adding options not supported
+    }
     }
 
     start() {
@@ -644,14 +761,14 @@ class MiniGame {
     jump() {
         // single quick tap: small instant bump
         if (!this.isRunning) return;
-        this.player.vy = this.jumpPower;
+    // small responsive bump for short taps (slightly stronger)
+    this.player.vy = Math.min(this.player.vy, this.jumpPower * 1.05);
     }
 
     startThrust() {
         if (!this.isRunning) return;
-        // small immediate bump on press to make short taps feel responsive
-        this.player.vy = Math.min(this.player.vy, this.jumpPower);
-        this.thrusting = true;
+    // begin continuous thrust for long press; do not override short-tap bump
+    this.thrusting = true;
     }
 
     stopThrust() {
