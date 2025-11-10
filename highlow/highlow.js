@@ -629,7 +629,8 @@ class MiniGame {
         this.isRunning = false;
         this.player = { x: 80, y: this.canvas.height/2, vy: 0, radius: 12 };
     this._stopped = false; // guard to prevent double stop
-        this.gravity = 0.6;
+    // gravity controls how quickly the player falls each frame — lowered for slower fall
+    this.gravity = 0.35;
     this.jumpPower = -6; // smaller single-click impulse for finer control
     this.thrusting = false; // whether mouse/touch is holding thrust
     this.thrustAccel = -26; // continuous upward acceleration (px/s^2)
@@ -861,6 +862,101 @@ if (launchBtn) {
     });
 }
 }
+
+// --- チュートリアル (ゲーム内モーダルを JS で生成) ---
+(function setupTutorial(){
+    // チュートリアルボタンを作る（既にあれば再利用）
+    let tutBtn = document.getElementById('tutorial-btn');
+    if (!tutBtn) {
+        tutBtn = document.createElement('button');
+        tutBtn.id = 'tutorial-btn';
+        tutBtn.textContent = 'チュートリアル';
+        tutBtn.style.marginLeft = '8px';
+        // 可能なら start-btn の隣に挿入、なければ body に追加
+        const startBtnEl = document.getElementById('start-btn');
+        if (startBtnEl && startBtnEl.parentNode) startBtnEl.parentNode.insertBefore(tutBtn, startBtnEl.nextSibling);
+        else document.body.appendChild(tutBtn);
+    }
+
+    // モーダル本体を作る
+    let modal = document.getElementById('tutorial-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'tutorial-modal';
+    modal.style.position = 'fixed';
+    modal.style.left = '14px';
+    modal.style.top = '14px';
+    modal.style.display = 'none';
+    modal.style.alignItems = 'flex-start';
+    modal.style.justifyContent = 'flex-start';
+    modal.style.background = 'transparent';
+    modal.style.zIndex = '3001';
+
+        const inner = document.createElement('div');
+    inner.style.background = 'rgba(20,20,20,0.98)';
+    inner.style.color = '#fff';
+    inner.style.padding = '12px';
+    inner.style.borderRadius = '10px';
+    inner.style.width = '420px';
+    inner.style.boxShadow = '0 8px 32px rgba(0,0,0,0.7)';
+    inner.style.border = '3px solid #d4af37';
+    inner.style.borderRadius = '12px';
+                inner.innerHTML = `
+                        <div class="missions-panel-inner">
+                            <h2 style="margin-top:0;color:#ffd54f">チュートリアル</h2>
+                            <div id="tutorial-step" style="min-height:90px;font-size:0.98rem;line-height:1.4;color:#fffde7"></div>
+                            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+                                <button id="tutorial-prev">前へ</button>
+                                <button id="tutorial-next">次へ</button>
+                                <button id="tutorial-close">閉じる</button>
+                            </div>
+                        </div>
+                `;
+        modal.appendChild(inner);
+        document.body.appendChild(modal);
+    }
+
+    const steps = [
+        'ゲームの目的: 現在のカードよりも高いか低いかを予想して賭けます。勝てば掛け金が増え、負ければ減ります。',
+        '賭け方: 「ベット」欄で金額を入力し、HIGH または LOW を押します。掛け金は残高内に自動調整されます。',
+        'ヒント: 連勝が続くと内部で勝ちをひっくり返す仕組みが働くことがあります。大きな賭けは注意してください。',
+        'ミッション: ミッションで報酬がもらえ、累計獲得でミニゲームが解放されます。',
+        'コツ: 小さな賭けで慣れてから賭け金を上げると安定します。タイトルクリックで一度だけボーナスがもらえます。'
+    ];
+
+    let idx = 0;
+    function showStep(i){
+        idx = Math.max(0, Math.min(i, steps.length-1));
+        const el = document.getElementById('tutorial-step');
+        if (el) el.textContent = steps[idx];
+        const prev = document.getElementById('tutorial-prev');
+        const next = document.getElementById('tutorial-next');
+        if (prev) prev.disabled = idx === 0;
+        if (next) next.textContent = idx === steps.length - 1 ? '終わり' : '次へ';
+    }
+
+    function openTut(){
+        modal.style.display = 'flex';
+        showStep(0);
+    }
+    function closeTut(){
+        modal.style.display = 'none';
+        try { localStorage.setItem('tutorial_seen', '1'); } catch (e) {}
+    }
+
+    document.getElementById('tutorial-next').addEventListener('click', () => {
+        if (idx < steps.length - 1) showStep(idx + 1); else closeTut();
+    });
+    document.getElementById('tutorial-prev').addEventListener('click', () => showStep(idx - 1));
+    document.getElementById('tutorial-close').addEventListener('click', closeTut);
+    tutBtn.addEventListener('click', openTut);
+
+    // 初回未表示なら自動表示（短い遅延）
+    try {
+        const seen = localStorage.getItem('tutorial_seen');
+        if (!seen) setTimeout(openTut, 600);
+    } catch (e) {}
+})();
 
 // Missions UI handlers
 const missionsBtn = document.getElementById('missions-btn');
