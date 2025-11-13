@@ -47,6 +47,10 @@ class Game {
     // click mechanics
     this.clickValue = 1; // how much each click gives
     this.totalClicks = 0; // total number of clicks performed
+    // auto-clicker: unlocked when totalClicks >= 1000
+    this.autoClickUnlocked = false;
+    this.autoClickInterval = null; // interval id for auto-clicker
+    this.autoClickRate = 1000; // ms per automatic click (default 1s)
     }
 
     start() {
@@ -168,6 +172,33 @@ class Game {
             }
         });
         this.updateBalance();
+        // check for auto-clicker unlock
+    if (!this.autoClickUnlocked && this.totalClicks >= 1000) {
+            this.autoClickUnlocked = true;
+            this.showToast('自動クリックが解放されました！');
+            // start auto-clicking immediately
+            this.enableAutoClick();
+            this.saveState();
+        }
+    }
+
+    enableAutoClick(rateMs) {
+        if (this.autoClickInterval) clearInterval(this.autoClickInterval);
+        if (typeof rateMs === 'number' && rateMs > 0) this.autoClickRate = rateMs;
+        // start interval to add clickValue to balance each tick
+        this.autoClickInterval = setInterval(() => {
+            this.balance += this.clickValue;
+            this.cumulativeEarned += this.clickValue;
+            this.updateBalance();
+            this.onEarn(this.clickValue);
+        }, this.autoClickRate);
+    }
+
+    disableAutoClick() {
+        if (this.autoClickInterval) {
+            clearInterval(this.autoClickInterval);
+            this.autoClickInterval = null;
+        }
     }
 
     // --- Missions helpers ---
@@ -328,6 +359,8 @@ class Game {
             }
             // double the clickValue upon completion
             this.clickValue *= 2;
+            // update earn button label
+            try { this.updateClickButton(); } catch (e) {}
         }
         // If this was a streak mission, spawn next milestone: +5 target and reward x5
         if (m.type === 'streak') {
@@ -355,6 +388,7 @@ class Game {
                 cumulativeEarned: this.cumulativeEarned,
                 balance: this.balance,
                 winStreak: this.winStreak
+                ,autoClickUnlocked: this.autoClickUnlocked
             };
             localStorage.setItem('highlow_state', JSON.stringify(state));
         } catch (e) {
@@ -372,6 +406,9 @@ class Game {
             if (typeof state.cumulativeEarned === 'number') this.cumulativeEarned = state.cumulativeEarned;
             if (typeof state.balance === 'number') this.balance = state.balance;
             if (typeof state.winStreak === 'number') this.winStreak = state.winStreak;
+            if (typeof state.autoClickUnlocked === 'boolean') this.autoClickUnlocked = state.autoClickUnlocked;
+            // resume auto-click if previously unlocked
+            if (this.autoClickUnlocked) this.enableAutoClick();
         } catch (e) {
             console.warn('loadState failed', e);
         }
@@ -511,6 +548,18 @@ class Game {
         }
     }
 
+    // Sync the earn button label with current clickValue
+    updateClickButton() {
+        try {
+            const el = document.getElementById('earn-btn');
+            if (!el) return;
+            // show per-click amount, e.g. "クリックで +2円"
+            el.textContent = `クリックで +${this.clickValue}円`;
+        } catch (e) {
+            // ignore DOM errors
+        }
+    }
+
     revealNextCard() {
         const nextCardDisplay = document.getElementById('next-card-display');
         nextCardDisplay.textContent = this.nextCard.toString();
@@ -577,6 +626,9 @@ game.renderMissions();
 // ensure mini-game launcher reflects saved unlock state
 game.checkMiniUnlock();
 
+// sync earn button label with current clickValue on startup
+try { game.updateClickButton(); } catch (e) {}
+
 // 初期状態でスタートボタンを揺らす
 const startBtnInit = document.getElementById('start-btn');
 if (startBtnInit) startBtnInit.classList.add('idle');
@@ -635,7 +687,7 @@ class MiniGame {
     this.thrusting = false; // whether mouse/touch is holding thrust
     this.thrustAccel = -26; // continuous upward acceleration (px/s^2)
         this.obstacles = [];
-        this.spawnInterval = 1500; // ms
+    this.spawnInterval = 1500; // ms
         this.lastSpawn = 0;
         this.lastTime = 0;
         this.elapsed = 0;
@@ -723,6 +775,18 @@ class MiniGame {
     } catch (e) {
         // ignore if adding options not supported
     }
+
+    // compute gap based on elapsed time: start widening baseline 130, after 30s begin shrinking
+    this.computeGap = function() {
+        const baseGap = 130; // starting gap
+        const minGap = 90; // smallest allowed gap
+        const shrinkStart = 30; // seconds
+        const shrinkDuration = 30; // seconds over which gap shrinks to minGap
+        if (this.elapsed <= shrinkStart) return baseGap;
+        const t = Math.min((this.elapsed - shrinkStart) / shrinkDuration, 1);
+        // linear interpolation from baseGap to minGap as t goes 0->1
+        return Math.round(baseGap - t * (baseGap - minGap));
+    }
     }
 
     start() {
@@ -778,7 +842,7 @@ class MiniGame {
 
     spawnObstacle() {
         const h = 28 + Math.random() * 80;
-        const gap = 90; // gap for the player
+    const gap = this.computeGap(); // dynamic gap depending on elapsed time
         const topH = Math.random() * (this.canvas.height - gap - 40);
         // obstacle represented as top rect and bottom rect (like Flappy Bird)
         this.obstacles.push({ x: this.canvas.width + 20, w: 28, topH: topH, gap: gap, speed: 160 });
@@ -920,7 +984,7 @@ if (launchBtn) {
         'ゲームの目的: 現在のカードよりも高いか低いかを予想して賭けます。勝てば掛け金が増え、負ければ減ります。',
         '賭け方: 「ベット」欄で金額を入力し、HIGH または LOW を押します。掛け金は残高内に自動調整されます。',
         'ヒント: 連勝が続くと内部で勝ちをひっくり返す仕組みが働くことがあります。大きな賭けは注意してください。',
-        'ミッション: ミッションで報酬がもらえ、累計獲得でミニゲームが解放されます。',
+    'ミッション: ミッションで報酬がもらえ、累計獲得が1000円に達するとミニゲーム「浮遊回避」が解放されます。',
         'コツ: 小さな賭けで慣れてから賭け金を上げると安定します。タイトルクリックで一度だけボーナスがもらえます。'
     ];
 
