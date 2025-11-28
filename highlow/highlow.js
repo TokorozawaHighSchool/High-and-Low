@@ -23,6 +23,13 @@ class Game {
     this._gameOverTimeout = null; // guard for pending gameOver callback
     this.countdownRemaining = 0;
     this.winStreak = 0; // 連勝カウント
+    // Combo system
+    this.comboCount = 0; // visible combo (連勝によるカウント)
+    this.comboDecayMs = 12000; // コンボが持続する時間（ms）
+    this.comboLastWin = 0; // タイムスタンプ
+    this.comboMultiplierStep = 0.08; // 1連勝ごとの倍率増加（例: 8%）
+    this.comboMax = 8; // 最大連勝倍率ステップ
+    this.comboInterval = null; // decay チェック用
     // tuning: how much the system should try to flip a player's correct guess per streak
     this.streakFlipFactor = 0.08; // 8% per win
     this.streakFlipCap = 0.5; // 最大 50% の確率で勝ちをひっくり返す
@@ -34,6 +41,8 @@ class Game {
     this.betPenaltyFactor = 0.6;
     // betPenaltyCap: 掛け金ベースのペナルティ確率上限
     this.betPenaltyCap = 0.75;
+    // when player has zero or negative balance, cap the maximum allowed bet
+    this.maxDebtBet = 1000; // default maximum bet allowed while in debt
     // --- Missions system ---
     this.missions = [
         { id: 'm1', title: '5連勝達成', desc: '5連勝を達成する', type: 'streak', target: 5, progress: 0, reward: 1000, completed: false },
@@ -59,6 +68,9 @@ class Game {
     this.updateBalance();
     this.updateBetFromInput();
     this.drawNewCard();
+    // ensure combo UI exists and start decay timer if needed
+    try { this._ensureComboUI(); } catch (e) {}
+    if (!this.comboInterval) this.comboInterval = setInterval(() => this._checkComboDecay(), 800);
     // stop start button wobble
     const startBtn = document.getElementById('start-btn');
     if (startBtn) startBtn.classList.remove('idle');
@@ -78,6 +90,19 @@ class Game {
         if (!this.isPlaying) return;
 
     this.updateBetFromInput();
+        // determine whether this is a "large bet" for triggering adrenaline FX
+        let isLargeBet = false;
+        if (this.balance > 0) {
+            isLargeBet = (this.bet / this.balance) > 0.25;
+        } else {
+            // if balance is zero or negative, require an absolute bet threshold
+            isLargeBet = this.bet >= 500;
+        }
+        // warn and short suspense tone only for large bets
+        if (isLargeBet) {
+            this.betWarning();
+            try { this.playTone(520, 140, 'triangle'); } catch (e) {}
+        }
         // Determine correctness but allow a streak-based penalty that can turn a correct
         // guess into an incorrect one (makes long winning streaks harder).
         // Calculate initial correctness based on the already-determined nextCard.
@@ -98,14 +123,16 @@ class Game {
             }
             // bet-size-based penalty
             let betPenaltyChance = 0;
+            // Only apply bet-size penalty when player has positive balance.
+            // If balance is zero or negative, do not penalize based on bet size so player can still play normally.
             if (this.balance > 0) {
                 const betRatio = this.bet / this.balance; // e.g. 0.5 = half the balance
                 if (betRatio > this.betPenaltyThreshold) {
-                    betPenaltyChance = Math.min((betRatio - this.betPenaltyThreshold) * this.betPenaltyFactor, this.betPenaltyCap);
+                    // Gradually increase penalty from 0 at threshold to maxPenalty at betRatio=1
+                    const maxPenalty = 0.38;
+                    const scale = maxPenalty / (1 - this.betPenaltyThreshold);
+                    betPenaltyChance = Math.min((betRatio - this.betPenaltyThreshold) * scale, maxPenalty);
                 }
-            } else if (this.bet > 0) {
-                // if balance is zero or negative, treat as high-risk
-                betPenaltyChance = this.betPenaltyCap;
             }
             flipChance = Math.min(flipChance + betPenaltyChance, 0.95);
 
@@ -135,17 +162,30 @@ class Game {
 
         setTimeout(() => {
             if (isCorrect) {
-                this.balance += this.bet;
+                // combo handling
                 this.winStreak += 1; // increase streak on a genuine win
+                this.comboCount = Math.min(this.comboMax, this.comboCount + 1);
+                this.comboLastWin = Date.now();
+                // visual small combo effect
+                try { this._showComboPulse(); } catch (e) {}
+                // compute combo multiplier
+                const comboMultiplier = 1 + this.comboCount * this.comboMultiplierStep;
+                const gain = Math.floor(this.bet * comboMultiplier);
+                this.balance += gain;
+                try { if (isLargeBet) this.onWinEffects(); } catch (e) {}
                 // mission: update streak-based missions
                 this.onWinStreakChange();
                 // track earned
-                this.onEarn(this.bet);
+                this.onEarn(Math.floor(this.bet * (this.comboCount > 0 ? (1 + this.comboCount * this.comboMultiplierStep) : 1)));
                 this.updateBalance();
                 this.drawNewCard();
             } else {
                 this.balance -= this.bet;
                 this.winStreak = 0; // reset on loss
+                // reset combo
+                this.comboCount = 0;
+                try { this._updateComboUI(); } catch (e) {}
+                try { if (isLargeBet) this.onLoseEffects(); } catch (e) {}
                 // mission: reset streak-based missions progress if needed
                 this.onWinStreakChange();
                 // Allow balance to become negative (no clamping to 0)
@@ -287,6 +327,253 @@ class Game {
         } catch (e) {
             console.warn('showToast failed', e);
         }
+    }
+
+    // --- Adrenaline / FX helpers ---
+    _ensureAudio() {
+        try {
+            if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            this._audioCtx = null;
+        }
+    }
+
+    playTone(freq = 440, duration = 120, type = 'sine') {
+        this._ensureAudio();
+        if (!this._audioCtx) return;
+        try {
+            const ctx = this._audioCtx;
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = type;
+            o.frequency.value = freq;
+            g.gain.value = 0.0001;
+            o.connect(g);
+            g.connect(ctx.destination);
+            const now = ctx.currentTime;
+            g.gain.setValueAtTime(0.0001, now);
+            g.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+            o.start(now);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + duration / 1000);
+            o.stop(now + duration / 1000 + 0.02);
+        } catch (e) {}
+    }
+
+    // small screen shake using body transform
+    screenShake(intensity = 6, duration = 420) {
+        const el = document.body;
+        const start = Date.now();
+        const iv = setInterval(() => {
+            const elapsed = Date.now() - start;
+            if (elapsed >= duration) {
+                el.style.transform = '';
+                el.style.transition = '';
+                clearInterval(iv);
+                return;
+            }
+            const x = (Math.random() * 2 - 1) * intensity;
+            const y = (Math.random() * 2 - 1) * intensity;
+            el.style.transform = `translate(${x}px, ${y}px)`;
+        }, 16);
+    }
+
+    // full-screen flash (temporary overlay)
+    _ensureOverlay() {
+        if (this._adrenalineOverlay) return;
+        const ov = document.createElement('div');
+        ov.id = 'adrenaline-overlay';
+        ov.style.position = 'fixed';
+        ov.style.left = '0';
+        ov.style.top = '0';
+        ov.style.width = '100%';
+        ov.style.height = '100%';
+        ov.style.pointerEvents = 'none';
+        ov.style.zIndex = '4000';
+        ov.style.transition = 'opacity 250ms ease';
+        ov.style.opacity = '0';
+        document.body.appendChild(ov);
+        this._adrenalineOverlay = ov;
+    }
+
+    flash(color = 'rgba(255,255,255,0.9)', duration = 220) {
+        try {
+            this._ensureOverlay();
+            const ov = this._adrenalineOverlay;
+            ov.style.background = color;
+            ov.style.opacity = '0.9';
+            setTimeout(() => { ov.style.opacity = '0'; }, duration);
+        } catch (e) {}
+    }
+
+    // heartbeat effect on balance area: apply scale pulse
+    startHeartbeat(ms = 800) {
+        try {
+            const el = document.querySelector('.balance-area');
+            if (!el) return;
+            el.style.transition = `transform 140ms ease-in-out`;
+            el.style.transform = 'scale(1.06)';
+            clearTimeout(this._hbTimeout);
+            this._hbTimeout = setTimeout(() => { try { el.style.transform = ''; } catch (e) {} }, ms);
+        } catch (e) {}
+    }
+
+    // visual warning when bet is large relative to balance
+    betWarning() {
+        try {
+            const betInput = document.getElementById('bet-input');
+            if (!betInput) return;
+            betInput.style.transition = 'box-shadow 200ms ease, transform 120ms ease';
+            betInput.style.boxShadow = '0 0 18px rgba(255,80,80,0.9)';
+            betInput.style.transform = 'translateY(-2px)';
+            clearTimeout(this._betWarnTimeout);
+            this._betWarnTimeout = setTimeout(() => { try { betInput.style.boxShadow = ''; betInput.style.transform = ''; } catch (e) {} }, 800);
+        } catch (e) {}
+    }
+
+    onWinEffects() {
+        this.playTone(880, 240, 'sine');
+        this.flash('rgba(255, 212, 64, 0.85)', 320);
+        this.screenShake(4, 360);
+        this.startHeartbeat(700);
+        try {
+            // emit a burst of gold coins from balance area
+            const bal = document.querySelector('.balance-area') || document.getElementById('balance');
+            let x = window.innerWidth / 2;
+            let y = window.innerHeight / 3;
+            if (bal) {
+                const r = bal.getBoundingClientRect();
+                x = r.left + r.width / 2;
+                y = r.top + r.height / 2;
+            }
+            this._ensureCoinStyles();
+            this.coinBurst(22, x, y);
+        } catch (e) {}
+    }
+
+    onLoseEffects() {
+        this.playTone(120, 420, 'sawtooth');
+        this.flash('rgba(200,24,24,0.95)', 520);
+        this.screenShake(12, 520);
+        this._ensureCoinStyles();
+        try {
+            const bal = document.querySelector('.balance-area') || document.getElementById('balance');
+            let x = window.innerWidth / 2;
+            let y = window.innerHeight / 3;
+            if (bal) {
+                const r = bal.getBoundingClientRect();
+                x = r.left + r.width / 2;
+                y = r.top + r.height / 2;
+            }
+            // red shards / dark coins that scatter outwards
+            this.lossBurst(26, x, y);
+            this._showLossOverlay(`- ${this.bet}円`, x, y);
+        } catch (e) {}
+    }
+
+    lossBurst(count = 12, originX = window.innerWidth/2, originY = window.innerHeight/3) {
+        try {
+            for (let i = 0; i < count; i++) {
+                const el = document.createElement('div');
+                el.className = 'coin-particle';
+                // darker color for loss pieces
+                el.style.background = 'radial-gradient(circle at 40% 30%, #ffd1b0, #ff8a80 30%, #b71c1c 70%)';
+                const ox = (Math.random() * 160 - 80);
+                const oy = (Math.random() * 120 - 60);
+                el.style.left = `${originX + ox}px`;
+                el.style.top = `${originY + oy}px`;
+                const size = Math.round(10 + Math.random() * 22);
+                el.style.width = `${size}px`;
+                el.style.height = `${size}px`;
+                const distX = (Math.random() * 680 + 120) * (Math.random() < 0.5 ? -1 : 1);
+                const distY = -(Math.random() * 420 + 40);
+                el.style.setProperty('--tx', `${distX}px`);
+                el.style.setProperty('--ty', `${distY + (Math.random() * 560 + 200)}px`);
+                const dur = (Math.random() * 900 + 900);
+                const delay = Math.random() * 200;
+                el.style.animation = `coin-fall ${dur}ms cubic-bezier(.25,.8,.25,1) ${delay}ms forwards`;
+                document.body.appendChild(el);
+                setTimeout(() => { try { el.remove(); } catch (e) {} }, dur + delay + 120);
+            }
+        } catch (e) {}
+    }
+
+    _showLossOverlay(text, x = null, y = null) {
+        try {
+            let o = document.getElementById('loss-overlay');
+            if (!o) {
+                o = document.createElement('div');
+                o.id = 'loss-overlay';
+                o.style.position = 'fixed';
+                o.style.pointerEvents = 'none';
+                o.style.zIndex = '4600';
+                o.style.color = '#ffebee';
+                o.style.fontWeight = '700';
+                o.style.textShadow = '0 2px 12px rgba(0,0,0,0.7)';
+                o.style.fontSize = '28px';
+                document.body.appendChild(o);
+            }
+            o.textContent = text;
+            if (x === null) x = window.innerWidth/2;
+            if (y === null) y = window.innerHeight/3;
+            o.style.left = `${x}px`;
+            o.style.top = `${y}px`;
+            o.style.transform = 'translate(-50%,-50%) scale(1.08)';
+            o.style.opacity = '1';
+            o.style.transition = 'transform 540ms cubic-bezier(.2,.9,.2,1), opacity 540ms ease';
+            setTimeout(() => {
+                o.style.transform = 'translate(-50%,-50%) scale(0.9)';
+                o.style.opacity = '0';
+            }, 380);
+        } catch (e) {}
+    }
+
+    // coin particle effects
+    _ensureCoinStyles() {
+        if (this._coinStylesInjected) return;
+        try {
+            const style = document.createElement('style');
+            style.id = 'coin-styles';
+            style.textContent = `
+            @keyframes coin-fall { 0% { transform: translate3d(0,0,0) rotate(0deg); opacity:1 } 100% { transform: translate3d(var(--tx), var(--ty), 0) rotate(520deg); opacity:0 } }
+            .coin-particle { position:fixed; width:18px; height:18px; border-radius:50%; background: radial-gradient(circle at 40% 30%, #fff8b0, #ffd54f 40%, #d4af37 70%); box-shadow: 0 2px 6px rgba(0,0,0,0.45); pointer-events:none; z-index:4500; transform-origin:center; }
+            `;
+            document.head.appendChild(style);
+        } catch (e) {}
+        this._coinStylesInjected = true;
+    }
+
+    coinBurst(count = 16, originX = window.innerWidth/2, originY = window.innerHeight/3) {
+        try {
+            const frag = document.createDocumentFragment();
+            for (let i = 0; i < count; i++) {
+                const c = document.createElement('div');
+                c.className = 'coin-particle';
+                // random initial offset so they don't all overlap at start
+                const ox = (Math.random() * 120 - 60);
+                const oy = (Math.random() * 80 - 40);
+                c.style.left = `${originX + ox}px`;
+                c.style.top = `${originY + oy}px`;
+                // random size for depth parallax
+                const size = Math.round(12 + Math.random() * 18); // 12 - 30px
+                c.style.width = `${size}px`;
+                c.style.height = `${size}px`;
+                // random trajectory: wider horizontal spread and varied vertical arc
+                const distX = (Math.random() * 520 + 120) * (Math.random() < 0.5 ? -1 : 1);
+                const distY = -(Math.random() * 340 + 80); // upward lift
+                // final translation values (we'll use CSS variables)
+                c.style.setProperty('--tx', `${distX}px`);
+                c.style.setProperty('--ty', `${distY + (Math.random() * 420 + 160)}px`);
+                // duration and delay — longer for further travel
+                const dur = (Math.random() * 900 + 800); // 800ms - 1700ms
+                const delay = Math.random() * 180;
+                // random spin via transform: use the keyframes rotate value and randomize via CSS variable not supported; use varied durations
+                c.style.animation = `coin-fall ${dur}ms cubic-bezier(.18,.9,.28,1) ${delay}ms forwards`;
+                frag.appendChild(c);
+                // cleanup
+                setTimeout(() => { try { c.remove(); } catch (e) {} }, dur + delay + 80);
+                document.body.appendChild(c);
+            }
+        } catch (e) {}
     }
 
     onPlay() {
@@ -434,6 +721,13 @@ class Game {
         this.countdownTimer = null;
         this.countdownRemaining = 0;
         this.winStreak = 0;
+        // reset combo on full reset
+        this.comboCount = 0;
+        this.comboLastWin = 0;
+        if (this.comboInterval) {
+            clearInterval(this.comboInterval);
+            this.comboInterval = null;
+        }
         this.streakFlipFactor = 0.08;
         this.streakFlipCap = 0.5;
         this.streakThreshold = 5;
@@ -449,6 +743,7 @@ class Game {
         // update UI
         this.updateBalance();
         this.renderMissions();
+    try { this._updateComboUI(); } catch (e) {}
     }
 
     // Renders mission list into UI
@@ -477,7 +772,15 @@ class Game {
         const betInput = document.getElementById('bet-input');
         let betValue = parseInt(betInput.value, 10);
         if (isNaN(betValue) || betValue < 1) betValue = 1;
-        if (betValue > this.balance && this.balance > 0) betValue = this.balance;
+        if (this.balance > 0) {
+            if (betValue > this.balance) betValue = this.balance;
+        } else {
+            // player is in debt: clamp to configured maximum to avoid runaway bets
+            if (betValue > this.maxDebtBet) {
+                betValue = this.maxDebtBet;
+                try { this.showToast(`負債時は最大 ${this.maxDebtBet} 円までしか賭けられません`); } catch (e) {}
+            }
+        }
         this.bet = betValue;
         betInput.value = betValue;
     }
@@ -605,6 +908,99 @@ class Game {
         nextCardDisplay.textContent = this.isPlaying ? '?' : '';
     }
 
+    // --- Combo UI and logic helpers ---
+    _ensureComboUI() {
+        if (this._comboEl) return;
+        // Prefer placing the combo display next to the title if available
+        const titleEl = document.getElementById('title');
+        if (titleEl && titleEl.parentNode) {
+            const wrap = document.createElement('div');
+            wrap.id = 'combo-title-container';
+            wrap.style.display = 'inline-flex';
+            wrap.style.flexDirection = 'column';
+            wrap.style.alignItems = 'center';
+            wrap.style.justifyContent = 'center';
+            wrap.style.marginLeft = '10px';
+            wrap.style.color = '#ffd54f';
+            wrap.style.fontWeight = '700';
+            wrap.style.lineHeight = '1';
+            wrap.style.userSelect = 'none';
+            wrap.innerHTML = `<div id="combo-count" style="font-size:1.15rem;">${this.comboCount > 0 ? this.comboCount : ''}</div><div id="combo-mul" style="font-size:0.75rem;color:#fffde7;opacity:0.9">x${(1 + this.comboCount * this.comboMultiplierStep).toFixed(2)}</div>`;
+            // insert after title
+            if (titleEl.nextSibling) titleEl.parentNode.insertBefore(wrap, titleEl.nextSibling);
+            else titleEl.parentNode.appendChild(wrap);
+            this._comboEl = wrap;
+            this._comboCountEl = document.getElementById('combo-count');
+            this._comboMulEl = document.getElementById('combo-mul');
+        } else {
+            // fallback to previous fixed container in top-right
+            const container = document.createElement('div');
+            container.id = 'combo-container';
+            container.style.position = 'absolute';
+            container.style.right = '18px';
+            container.style.top = '18px';
+            container.style.padding = '8px 12px';
+            container.style.background = 'rgba(0,0,0,0.28)';
+            container.style.color = '#ffd54f';
+            container.style.fontWeight = '700';
+            container.style.borderRadius = '10px';
+            container.style.boxShadow = '0 6px 20px rgba(0,0,0,0.45)';
+            container.style.zIndex = '3002';
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.gap = '8px';
+            container.innerHTML = `<div id="combo-label" style="font-size:0.92rem">コンボ</div><div id="combo-value" style="font-size:1.2rem">x1</div>`;
+            document.body.appendChild(container);
+            this._comboEl = container;
+            this._comboValueEl = document.getElementById('combo-value');
+        }
+        this._updateComboUI();
+    }
+
+    _updateComboUI() {
+        // if title-based UI exists
+        if (this._comboCountEl && this._comboMulEl) {
+            this._comboCountEl.textContent = this.comboCount > 0 ? this.comboCount.toString() : '';
+            if (this.comboCount > 0) {
+                const mul = (1 + this.comboCount * this.comboMultiplierStep);
+                this._comboMulEl.textContent = `x${mul.toFixed(2)}`;
+                this._comboMulEl.style.opacity = '0.95';
+            } else {
+                this._comboMulEl.textContent = `x1.00`;
+                this._comboMulEl.style.opacity = '0.0';
+            }
+            return;
+        }
+        if (!this._comboValueEl) return;
+        const mul = (1 + this.comboCount * this.comboMultiplierStep);
+        this._comboValueEl.textContent = `x${mul.toFixed(2)}`;
+    }
+
+    _showComboPulse() {
+        try {
+            this._ensureComboUI();
+            if (!this._comboEl) return;
+            this._updateComboUI();
+            this._comboEl.style.transition = 'transform 180ms ease, box-shadow 180ms ease';
+            this._comboEl.style.transform = 'scale(1.08)';
+            this._comboEl.style.boxShadow = '0 8px 26px rgba(255,213,79,0.18)';
+            clearTimeout(this._comboPulseTimeout);
+            this._comboPulseTimeout = setTimeout(() => { try { this._comboEl.style.transform = ''; this._comboEl.style.boxShadow = ''; } catch (e) {} }, 350);
+        } catch (e) {}
+    }
+
+    _checkComboDecay() {
+        try {
+            if (this.comboCount <= 0) return;
+            if (Date.now() - this.comboLastWin > this.comboDecayMs) {
+                // decay one step
+                this.comboCount = Math.max(0, this.comboCount - 1);
+                this.comboLastWin = Date.now();
+                this._updateComboUI();
+            }
+        } catch (e) {}
+    }
+
     hideNextCard() {
         const nextCardDisplay = document.getElementById('next-card-display');
         nextCardDisplay.textContent = '';
@@ -692,6 +1088,10 @@ class MiniGame {
         this.lastTime = 0;
         this.elapsed = 0;
         this.rewardPerSecond = 10; // yen per second
+        // multiplier: increases every multiplierIncreaseInterval seconds
+        this.multiplier = 1.0;
+        this.multiplierIncreaseInterval = 10; // seconds
+        this._multiplierLastIncrease = 0;
         this.game = gameInstance;
 
         // high score tracking (seconds)
@@ -707,6 +1107,14 @@ class MiniGame {
         const controls = document.querySelector('.minigame-controls');
         if (controls) {
             controls.appendChild(this.highScoreEl);
+            // multiplier display
+            this.multiplierEl = document.createElement('div');
+            this.multiplierEl.style.fontSize = '0.9rem';
+            this.multiplierEl.style.color = '#80deea';
+            this.multiplierEl.style.marginLeft = '10px';
+            this.multiplierEl.style.alignSelf = 'center';
+            this.multiplierEl.textContent = `倍率: x${this.multiplier.toFixed(2)}`;
+            controls.appendChild(this.multiplierEl);
         }
 
     this.startBtn.addEventListener('click', () => this.start());
@@ -798,6 +1206,9 @@ class MiniGame {
         this.player.vy = 0;
         this.elapsed = 0;
         this.lastTime = performance.now();
+    this._multiplierLastIncrease = this.lastTime;
+    this.multiplier = 1.0;
+    if (this.multiplierEl) this.multiplierEl.textContent = `倍率: x${this.multiplier.toFixed(2)}`;
         this.lastSpawn = this.lastTime + 600;
         requestAnimationFrame((t)=>this.loop(t));
     }
@@ -808,7 +1219,9 @@ class MiniGame {
         this.isRunning = false;
         // reward based on elapsed seconds — use 0.1s precision to avoid 0 reward on quick exits
         const secsRounded = Math.max(0, Math.round(this.elapsed * 10) / 10);
-        const reward = Math.max(0, Math.floor(secsRounded * this.rewardPerSecond));
+    // apply multiplier to reward
+    const baseReward = Math.max(0, Math.floor(secsRounded * this.rewardPerSecond));
+    const reward = Math.max(0, Math.floor(baseReward * this.multiplier));
         this.game.balance += reward;
         this.game.cumulativeEarned += reward;
         this.game.updateBalance();
@@ -860,6 +1273,18 @@ class MiniGame {
         }
         this.player.vy += this.gravity;
         this.player.y += this.player.vy;
+        // multiplier: increase every multiplierIncreaseInterval seconds
+        if (this.multiplierIncreaseInterval > 0) {
+            // convert last increase timestamp to seconds-based comparison
+            const sinceLast = (timestamp - this._multiplierLastIncrease) / 1000;
+            if (sinceLast >= this.multiplierIncreaseInterval) {
+                // increase multiplier by a step (e.g., +0.25x per interval)
+                const steps = Math.floor(sinceLast / this.multiplierIncreaseInterval);
+                this.multiplier += 0.25 * steps;
+                this._multiplierLastIncrease = this._multiplierLastIncrease + steps * this.multiplierIncreaseInterval * 1000;
+                if (this.multiplierEl) this.multiplierEl.textContent = `倍率: x${this.multiplier.toFixed(2)}`;
+            }
+        }
         // spawn
         if (timestamp - this.lastSpawn > this.spawnInterval) {
             this.spawnObstacle();
