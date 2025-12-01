@@ -11,6 +11,7 @@ class Card {
 class Game {
     constructor() {
     this.balance = 0;
+    this.nextBetQueue = []; // queue of one-shot bet modifiers from shop purchases
         this.currentCard = null;
         this.nextCard = null;
         this.isPlaying = false;
@@ -170,7 +171,13 @@ class Game {
                 try { this._showComboPulse(); } catch (e) {}
                 // compute combo multiplier
                 const comboMultiplier = 1 + this.comboCount * this.comboMultiplierStep;
-                const gain = Math.floor(this.bet * comboMultiplier);
+                // apply queued one-shot multipliers (if any)
+                let winMult = 1;
+                if (this.nextBetQueue && this.nextBetQueue.length > 0) {
+                    const q = this.nextBetQueue.shift();
+                    winMult = q.winMult || 1;
+                }
+                const gain = Math.floor(this.bet * comboMultiplier * winMult);
                 this.balance += gain;
                 try { if (isLargeBet) this.onWinEffects(); } catch (e) {}
                 // mission: update streak-based missions
@@ -180,7 +187,16 @@ class Game {
                 this.updateBalance();
                 this.drawNewCard();
             } else {
-                this.balance -= this.bet;
+                // apply insurance if player bought it (halves loss by multiplier)
+                const insurance = (this.insuranceFactor && typeof this.insuranceFactor === 'number') ? this.insuranceFactor : 1.0;
+                const lossAmount = Math.floor(this.bet * insurance);
+                // apply queued one-shot loss multiplier (if any)
+                let lossMult = 1;
+                if (this.nextBetQueue && this.nextBetQueue.length > 0) {
+                    const q = this.nextBetQueue.shift();
+                    lossMult = q.lossMult || 1;
+                }
+                this.balance -= Math.floor(lossAmount * lossMult);
                 this.winStreak = 0; // reset on loss
                 // reset combo
                 this.comboCount = 0;
@@ -751,7 +767,12 @@ class Game {
         const list = document.getElementById('missions-list');
         if (!list) return;
         list.innerHTML = '';
-        this.missions.forEach(m => {
+        // show incomplete missions first, then completed ones
+        const ordered = this.missions.slice().sort((a,b) => {
+            if (a.completed === b.completed) return 0;
+            return a.completed ? 1 : -1; // completed -> later
+        });
+        ordered.forEach(m => {
             const li = document.createElement('li');
             const left = document.createElement('div');
             left.style.flex = '1';
@@ -1014,6 +1035,184 @@ class Game {
 // ゲームの初期化
 const game = new Game();
 
+// --- Shop implementation ---
+class Shop {
+    constructor(gameInstance) {
+        this.game = gameInstance;
+        // items: id, price, title, desc, type, payload
+        // items: price = basePrice * growth^count
+        this.items = [
+            { id: 'click_boost', price: 2000, title: 'クリック強化 (x2)', desc: 'クリックで得られる金額が恒久的に2倍になります（累積可）。', type: 'stack', payload: { clickMultiplier: 2 }, count: 0, basePrice: 2000, growth: 1.7, singlePurchase: false },
+            { id: 'auto_income', price: 3000, title: '自動収入 +1/秒', desc: '毎秒自動で1円入るようになります（累積可）。', type: 'stack', payload: { autoIncome: 1 }, count: 0, basePrice: 3000, growth: 1.6, singlePurchase: false },
+            { id: 'insurance', price: 1000000, title: '保険（永久）', desc: '負けた時の損失が半分になります（永続）。', type: 'permanent', payload: { insurance: 0.5 }, bought: false, count: 0, basePrice: 1000000, growth: 1.0, singlePurchase: true },
+            { id: 'double_bet', price: 10000, title: 'ハイリスク (次の1回)', desc: '次の1回の掛けで、勝ったら得る金額が2倍、負けたら失う金額も2倍になります（消耗品）。', type: 'consumable', payload: { nextWinMultiplier: 2, nextLossMultiplier: 2 }, count: 0, basePrice: 10000, growth: 1.0, dynamicPricing: false, singlePurchase: false }
+        ];
+        this._autoIncomeInterval = null;
+        this.loadShopState();
+        this.renderShop();
+        this._wireUI();
+    }
+
+    renderShop() {
+        const list = document.getElementById('shop-list');
+        if (!list) return;
+        list.innerHTML = '';
+        for (const it of this.items) {
+            const li = document.createElement('li');
+            li.className = 'shop-item';
+            li.dataset.id = it.id;
+            const price = this.getCurrentPrice(it);
+            const label = it.singlePurchase ? (it.bought ? '購入済み' : '購入') : '購入';
+            const disabled = it.singlePurchase && it.bought ? 'disabled' : '';
+            const extra = it.count && it.count > 0 ? `<div style="font-size:0.85rem;color:#e8f5ff;margin-top:6px">購入回数: ${it.count}</div>` : '';
+            li.innerHTML = `
+                <div class="shop-icon">${this._getSvgFor(it.id)}</div>
+                <div class="shop-meta"><div class="shop-title">${it.title}</div><div class="shop-desc">${it.desc}${extra}</div></div>
+                <div class="shop-buy">価格: <strong class="shop-price">${price}</strong>円 <button class="buy-btn" ${disabled}>${label}</button></div>
+            `;
+            list.appendChild(li);
+        }
+    }
+
+    getCurrentPrice(item) {
+        // compute price based on basePrice, growth and count
+        const base = typeof item.basePrice === 'number' ? item.basePrice : (item.price || 1000);
+        const growth = typeof item.growth === 'number' ? item.growth : 1.7;
+        const cnt = typeof item.count === 'number' ? item.count : 0;
+        let price = Math.max(1, Math.floor(base * Math.pow(growth, cnt)));
+        // dynamic pricing: if item has dynamicPricing, scale price by player's balance
+        if (item.dynamicPricing) {
+            // increase price when balance is high to keep balance-proportionate cost
+            // formula: price *= 1 + log10(1 + balance/1000)
+            const bal = Math.max(0, this.game ? this.game.balance : (typeof window !== 'undefined' ? (window.game?.balance || 0) : 0));
+            const scale = 1 + Math.log10(1 + bal / 1000);
+            price = Math.max(1, Math.floor(price * scale));
+        }
+        return price;
+    }
+
+    _wireUI() {
+        const panel = document.getElementById('shop-panel');
+        const btn = document.getElementById('shop-btn');
+        const close = document.getElementById('close-shop');
+        if (btn && panel) btn.addEventListener('click', () => { panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; });
+        if (close && panel) close.addEventListener('click', () => { panel.style.display = 'none'; });
+        // delegate buy
+        document.getElementById('shop-list')?.addEventListener('click', (e) => {
+            const b = e.target.closest('.buy-btn');
+            if (!b) return;
+            const li = b.closest('.shop-item');
+            if (!li) return;
+            const id = li.dataset.id;
+            this.attemptPurchase(id, b);
+        });
+    }
+
+    attemptPurchase(id, btnEl=null) {
+        const item = this.items.find(x => x.id === id);
+        if (!item) return this.game.showToast('アイテムが見つかりません');
+    const price = this.getCurrentPrice(item);
+    if (item.singlePurchase && item.bought) return this.game.showToast('このアイテムは既に購入済みです');
+    if (this.game.balance < price) return this.game.showToast('残高が足りません');
+    // deduct
+    this.game.balance -= price;
+    // increment count or mark bought
+    item.count = (item.count || 0) + 1;
+    if (item.singlePurchase) item.bought = true;
+        // apply effect for this purchase
+        if (item.type === 'consumable') {
+            // consumables apply to next bet(s): push into game's nextBetQueue
+            const next = { winMult: item.payload.nextWinMultiplier || 1, lossMult: item.payload.nextLossMultiplier || 1 };
+            // store number of consumables purchased (we push once per count increment)
+            this.game.nextBetQueue = this.game.nextBetQueue || [];
+            this.game.nextBetQueue.push(next);
+        } else {
+            this.applyItem(item, 1);
+        }
+        // UI
+        this.renderShop();
+        this.game.updateBalance();
+        this.saveShopState();
+        this.game.showToast(`${item.title} を購入しました！`);
+    }
+
+    applyItem(item, times = 1) {
+        try {
+            // apply click multiplier multiplicatively times times
+            if (item.payload.clickMultiplier) {
+                for (let i = 0; i < times; i++) {
+                    this.game.clickValue = Math.max(1, this.game.clickValue * item.payload.clickMultiplier);
+                }
+                try { this.game.updateClickButton(); } catch (e) {}
+            }
+            // auto income: sum up total and ensure interval adds total per second
+            if (item.payload.autoIncome) {
+                this._autoIncomeTotal = (this._autoIncomeTotal || 0) + item.payload.autoIncome * times;
+                // clear existing interval to avoid duplicates
+                if (this._autoIncomeInterval) clearInterval(this._autoIncomeInterval);
+                if (this._autoIncomeTotal > 0) {
+                    this._autoIncomeInterval = setInterval(() => {
+                        this.game.balance += this._autoIncomeTotal;
+                        this.game.cumulativeEarned += this._autoIncomeTotal;
+                        this.game.updateBalance();
+                    }, 1000);
+                }
+            }
+            // insurance remains single-purchase
+            if (item.payload.insurance) {
+                this.game.insuranceFactor = item.payload.insurance; // e.g., 0.5 means losses halved
+            }
+        } catch (e) { console.warn('applyItem failed', e); }
+    }
+
+    _getSvgFor(id) {
+        // return compact inline SVGs matching the markup above fallback
+        if (id === 'click_boost') return `<svg width="54" height="54" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="#ffd54f" /><path d="M8 12h8M8 8h8" stroke="#5d4037" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        if (id === 'auto_income') return `<svg width="54" height="54" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="6" width="20" height="12" rx="3" fill="#80deea" /><path d="M7 12h10M12 8v8" stroke="#012f34" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        if (id === 'insurance') return `<svg width="54" height="54" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3l7 3v5c0 5-4 9-7 10-3-1-7-5-7-10V6l7-3z" fill="#ff8a80"/><path d="M10 12l1.6 1.6L14 11" stroke="#4a2c2c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        return '';
+    }
+
+    // Persistence
+    saveShopState() {
+        try {
+            const shopState = { items: this.items.map(i => ({ id: i.id, bought: !!i.bought, count: i.count || 0 })) };
+            localStorage.setItem('highlow_shop', JSON.stringify(shopState));
+        } catch (e) { }
+    }
+
+    loadShopState() {
+        try {
+            const raw = localStorage.getItem('highlow_shop');
+            if (!raw) return;
+            const s = JSON.parse(raw);
+            if (s && Array.isArray(s.items)) {
+                for (const st of s.items) {
+                    const it = this.items.find(x => x.id === st.id);
+                    if (it) {
+                        it.bought = !!st.bought;
+                        it.count = typeof st.count === 'number' ? st.count : (it.count || 0);
+                        // apply cumulative effects according to count
+                        if (it.count > 0) {
+                            if (it.payload.clickMultiplier) {
+                                // apply multiplier count times
+                                for (let k = 0; k < it.count; k++) this.applyItem(it, 1);
+                            } else if (it.payload.autoIncome) {
+                                // accumulate total
+                                this.applyItem(it, it.count);
+                            }
+                        }
+                        if (it.bought && it.payload.insurance) this.applyItem(it, 1);
+                    }
+                }
+            }
+        } catch (e) { console.warn('loadShopState failed', e); }
+    }
+}
+
+// instantiate shop after game is created
+const shop = new Shop(game);
+
 // load any saved state
 game.loadState();
 // reflect loaded state in UI
@@ -1064,6 +1263,26 @@ if (earnBtn) {
     earnBtn.addEventListener('click', () => {
         game.earnOne();
     });
+
+// Menu wiring: wire new consolidated menu buttons to open panels
+const menuMissionsBtn = document.getElementById('menu-missions');
+const menuShopBtn = document.getElementById('menu-shop');
+const menuTutorialBtn = document.getElementById('menu-tutorial');
+const missionsPanelEl = document.getElementById('missions-panel');
+if (menuMissionsBtn && missionsPanelEl) {
+    menuMissionsBtn.addEventListener('click', () => { missionsPanelEl.style.display = 'block'; game.renderMissions(); });
+}
+if (menuShopBtn) {
+    menuShopBtn.addEventListener('click', () => { const p = document.getElementById('shop-panel'); if (p) p.style.display = 'block'; });
+}
+if (menuTutorialBtn) {
+    menuTutorialBtn.addEventListener('click', () => {
+        // trigger the (hidden) tutorial button if present so the module's openTut() runs
+        const hiddenTutBtn = document.getElementById('tutorial-btn');
+        if (hiddenTutBtn) { try { hiddenTutBtn.click(); } catch (e) { /* ignore */ } return; }
+        const tut = document.getElementById('tutorial-modal'); if (tut) tut.style.display = 'flex';
+    });
+}
 
 // --- Mini-game: click to float and avoid obstacles ---
 class MiniGame {
@@ -1384,17 +1603,18 @@ if (launchBtn) {
         const inner = document.createElement('div');
     inner.style.background = 'rgba(20,20,20,0.98)';
     inner.style.color = '#fff';
-    inner.style.padding = '12px';
+    inner.style.padding = '14px';
     inner.style.borderRadius = '10px';
-    inner.style.width = '420px';
-    inner.style.boxShadow = '0 8px 32px rgba(0,0,0,0.7)';
+    inner.style.width = '520px';
+    inner.style.maxWidth = '94vw';
+    inner.style.boxShadow = '0 10px 40px rgba(0,0,0,0.75)';
     inner.style.border = '3px solid #d4af37';
     inner.style.borderRadius = '12px';
                 inner.innerHTML = `
-                        <div class="missions-panel-inner">
-                            <h2 style="margin-top:0;color:#ffd54f">チュートリアル</h2>
-                            <div id="tutorial-step" style="min-height:90px;font-size:0.98rem;line-height:1.4;color:#fffde7"></div>
-                            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+                        <div class="tutorial-inner" style="display:flex;flex-direction:column;gap:10px">
+                            <h2 style="margin:0;color:#ffd54f;font-size:1.6rem">チュートリアル — はじめての方へ</h2>
+                            <div id="tutorial-step" style="min-height:160px;font-size:1rem;line-height:1.5;color:#fffde7;display:flex;gap:12px;align-items:flex-start"></div>
+                            <div style="margin-top:6px;display:flex;gap:8px;justify-content:flex-end">
                                 <button id="tutorial-prev">前へ</button>
                                 <button id="tutorial-next">次へ</button>
                                 <button id="tutorial-close">閉じる</button>
@@ -1406,18 +1626,59 @@ if (launchBtn) {
     }
 
     const steps = [
-        'ゲームの目的: 現在のカードよりも高いか低いかを予想して賭けます。勝てば掛け金が増え、負ければ減ります。',
-        '賭け方: 「ベット」欄で金額を入力し、HIGH または LOW を押します。掛け金は残高内に自動調整されます。',
-        'ヒント: 連勝が続くと内部で勝ちをひっくり返す仕組みが働くことがあります。大きな賭けは注意してください。',
-    'ミッション: ミッションで報酬がもらえ、累計獲得が1000円に達するとミニゲーム「浮遊回避」が解放されます。',
-        'コツ: 小さな賭けで慣れてから賭け金を上げると安定します。タイトルクリックで一度だけボーナスがもらえます。'
+        {
+            title: '目的 — 何をするの？',
+            body: '現在のカードより「高い」か「低い」かを予想して賭けます。正解すると掛け金が増えます。間違えると減ります。',
+            note: '重要: まずは小さな掛け金で試してください。',
+            img: `<svg width="140" height="100" viewBox="0 0 140 100" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="10" width="56" height="80" rx="8" fill="#fffbe6" stroke="#d4af37"/><rect x="76" y="10" width="56" height="80" rx="8" fill="#fffbe6" stroke="#d4af37"/><text x="36" y="58" font-size="28" text-anchor="middle" fill="#b71c1c">5</text><text x="104" y="58" font-size="28" text-anchor="middle" fill="#b71c1c">9</text></svg>`
+        },
+        {
+            title: '操作 — どうやって賭けるの？',
+            body: '「ベット」欄に金額を入れて、HIGH（高い）かLOW（低い）を押します。',
+            note: '画面下の「掛け金」は残高より大きくならないよう自動で調整されます。',
+            img: `<svg width="140" height="100" viewBox="0 0 140 100" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="14" width="120" height="28" rx="6" fill="#fff" stroke="#d4af37"/><text x="70" y="34" fill="#472b00" font-size="14" text-anchor="middle">ベット: 100</text><rect x="18" y="56" width="48" height="28" rx="6" fill="#43a047"/><rect x="74" y="56" width="48" height="28" rx="6" fill="#c62828"/><text x="42" y="76" fill="#fff" font-size="14" text-anchor="middle">HIGH</text><text x="98" y="76" fill="#fff" font-size="14" text-anchor="middle">LOW</text></svg>`
+        },
+        {
+            title: '注意 — 連勝と大きな賭け',
+            body: '連勝が続くと内部の仕組みで勝ちをひっくり返されることがあります。大きな賭けは危険です。',
+            note: '重要: 残高の25%以上を賭けるとペナルティ確率が上がります。',
+            img: `<svg width="140" height="100" viewBox="0 0 140 100" xmlns="http://www.w3.org/2000/svg"><g><circle cx="40" cy="40" r="28" fill="#ffd54f" stroke="#d4af37"/><text x="40" y="46" fill="#5d4037" font-size="18" text-anchor="middle">!</text></g><g><rect x="82" y="18" width="44" height="44" rx="8" fill="#ff8a80" stroke="#b71c1c"/><text x="104" y="46" fill="#4a2c2c" font-size="16" text-anchor="middle">危</text></g></svg>`
+        },
+        {
+            title: 'ミッションとミニゲーム',
+            body: 'ミッションを達成すると報酬がもらえます。累計獲得が一定に達するとミニゲームが解放されます。',
+            note: 'ミニゲームは生存時間に応じて報酬が入ります。',
+            img: `<svg width="140" height="100" viewBox="0 0 140 100" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="18" width="120" height="64" rx="8" fill="#081618" stroke="#80deea"/><text x="70" y="54" fill="#80deea" font-size="14" text-anchor="middle">ミニゲーム</text></svg>`
+        },
+        {
+            title: 'ショップについて',
+            body: 'ショップではアップグレードを購入できます。クリックの強化や自動収入、保険などがあります。購入は何回でもでき、買うたびに効果が積み重なります（一部商品を除く）。',
+            note: '重要: 同じアイテムを何回も買うと価格が上がります。最初は安いですが、回数を重ねると高額になります。',
+            img: `<svg width="140" height="100" viewBox="0 0 140 100" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="18" width="120" height="64" rx="8" fill="#1b3b3b" stroke="#ffd54f"/><g fill="#ffd54f"><circle cx="40" cy="50" r="10"/><text x="40" y="54" font-size="10" text-anchor="middle" fill="#5d4037">+2</text></g><g fill="#80deea"><rect x="82" y="36" width="30" height="20" rx="4"/><text x="97" y="50" font-size="10" text-anchor="middle" fill="#012f34">+1/s</text></g></svg>`
+        },
+        {
+            title: 'コツ — 安全な遊び方',
+            body: 'まずは小さいベットで慣れてから賭け金を上げましょう。タイトルをクリックすると一度だけボーナスがもらえます。',
+            note: '覚えておいて: ギャンブルはリスクがあります。負けても続けられる範囲で遊んでください。',
+            img: `<svg width="140" height="100" viewBox="0 0 140 100" xmlns="http://www.w3.org/2000/svg"><circle cx="70" cy="50" r="30" fill="#80deea" stroke="#012f34"/><text x="70" y="56" fill="#012f34" font-size="14" text-anchor="middle">ゆっくり</text></svg>`
+        }
     ];
 
     let idx = 0;
     function showStep(i){
         idx = Math.max(0, Math.min(i, steps.length-1));
         const el = document.getElementById('tutorial-step');
-        if (el) el.textContent = steps[idx];
+        if (!el) return;
+        const s = steps[idx];
+        // build a clear layout: left image, right text
+        el.innerHTML = `
+            <div style="flex:0 0 150px">${s.img}</div>
+            <div style="flex:1"> 
+                <div style="font-size:1.12rem;font-weight:800;color:#ffd54f;margin-bottom:6px">${s.title}</div>
+                <div style="font-size:1rem;color:#fffde7">${s.body}</div>
+                <div style="margin-top:8px;color:#ffe082;font-weight:700;font-size:1.05rem">${s.note}</div>
+            </div>
+        `;
         const prev = document.getElementById('tutorial-prev');
         const next = document.getElementById('tutorial-next');
         if (prev) prev.disabled = idx === 0;

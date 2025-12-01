@@ -10,8 +10,15 @@
 <body>
     <div class="container">
     <h1 id="title">HIGH&LOW</h1>
-    <button id="missions-btn" class="missions-btn">ミッション</button>
-    <button id="reset-btn" class="reset-btn">リセット</button>
+    <!-- Single menu button: hover to show options -->
+    <div id="main-menu" class="main-menu" aria-haspopup="true">
+        <button id="menu-btn" class="menu-btn">メニュー ▾</button>
+        <div class="menu-pop" id="menu-pop" role="menu">
+            <button class="menu-item" id="menu-missions">ミッション</button>
+            <button class="menu-item" id="menu-shop">ショップ</button>
+            <button class="menu-item" id="menu-tutorial">チュートリアル</button>
+        </div>
+    </div>
         <div class="game-area">
             <div class="current-card">
                 <h2>現在のカード</h2>
@@ -61,6 +68,59 @@
                     <h2>ミッション</h2>
                     <ul id="missions-list"></ul>
                     <button id="close-missions">閉じる</button>
+                </div>
+            </div>
+            <!-- Shop panel -->
+            <div id="shop-panel" class="shop-panel" style="display:none;">
+                <div class="shop-inner">
+                    <h2>ショップ</h2>
+                    <p style="color:#fffde7">残高を使って様々なアップグレードや消耗品を購入できます。</p>
+                    <ul id="shop-list" class="shop-list">
+                        <!-- Items populated by JS (fallback static entries provided) -->
+                        <li class="shop-item" data-id="click_boost">
+                            <div class="shop-icon">
+                                <!-- click boost SVG -->
+                                <svg width="54" height="54" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="12" cy="12" r="10" fill="#ffd54f" />
+                                    <path d="M8 12h8M8 8h8" stroke="#5d4037" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="shop-meta">
+                                <div class="shop-title">クリック強化 (x2)</div>
+                                <div class="shop-desc">クリックで得られる金額が恒久的に2倍になります。</div>
+                            </div>
+                            <div class="shop-buy">価格: <strong class="shop-price">2000</strong>円 <button class="buy-btn">購入</button></div>
+                        </li>
+                        <li class="shop-item" data-id="auto_income">
+                            <div class="shop-icon">
+                                <!-- auto income SVG -->
+                                <svg width="54" height="54" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="2" y="6" width="20" height="12" rx="3" fill="#80deea" />
+                                    <path d="M7 12h10M12 8v8" stroke="#012f34" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="shop-meta">
+                                <div class="shop-title">自動収入 +1/秒</div>
+                                <div class="shop-desc">毎秒自動で1円入るようになります（恒久）。</div>
+                            </div>
+                            <div class="shop-buy">価格: <strong class="shop-price">3000</strong>円 <button class="buy-btn">購入</button></div>
+                        </li>
+                        <li class="shop-item" data-id="insurance">
+                            <div class="shop-icon">
+                                <!-- insurance SVG -->
+                                <svg width="54" height="54" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 3l7 3v5c0 5-4 9-7 10-3-1-7-5-7-10V6l7-3z" fill="#ff8a80"/>
+                                    <path d="M10 12l1.6 1.6L14 11" stroke="#4a2c2c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="shop-meta">
+                                <div class="shop-title">保険（永久）</div>
+                                <div class="shop-desc">負けた時の損失が半分になります（永続）。</div>
+                            </div>
+                            <div class="shop-buy">価格: <strong class="shop-price">1000000</strong>円 <button class="buy-btn">購入</button></div>
+                        </li>
+                    </ul>
+                    <div style="text-align:right;margin-top:8px;"><button id="close-shop">閉じる</button></div>
                 </div>
             </div>
     </div>

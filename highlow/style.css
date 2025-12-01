@@ -50,6 +50,20 @@ body {
     opacity: 0.85;
 }
 
+/* New consolidated menu */
+.main-menu { position: absolute; right: 18px; top: 18px; z-index: 3100; }
+.menu-btn { padding: 8px 12px; border-radius:8px; background: linear-gradient(180deg,#ffd54f 0%,#f0c14b 100%); color:#472b00; border:2px solid #d4af37; cursor:pointer; font-weight:bold; }
+.menu-pop { display: none; position: absolute; right: 0; top: 40px; background: rgba(20,20,20,0.98); border: 2px solid rgba(212,175,55,0.14); padding: 8px; border-radius:8px; box-shadow: 0 8px 28px rgba(0,0,0,0.6); min-width:160px; }
+.menu-pop .menu-item { display:block; width:100%; padding:8px 10px; text-align:left; background:transparent; border:none; color:#fffde7; cursor:pointer; border-radius:6px; }
+.menu-pop .menu-item:hover { background: rgba(212,175,55,0.06); color:#ffd54f; }
+.main-menu:hover .menu-pop, .main-menu:focus-within .menu-pop { display:block; }
+
+/* hide the individual top buttons if still present to avoid duplicates */
+.missions-btn, .shop-btn { display: none !important; }
+
+/* hide auto-generated tutorial button (left-bottom) */
+#tutorial-btn { display: none !important; }
+
 /* On small screens keep it hidden to avoid crowding */
 @media (max-width: 480px) {
     .reset-btn { display: none; }
@@ -494,4 +508,51 @@ button:hover {
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+/* --- Shop styles --- */
+.shop-btn {
+    position: absolute;
+    right: 300px;
+    top: 16px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #80deea 0%, #4dd0e1 100%);
+    color: #012f34;
+    border: 2px solid rgba(255,255,255,0.06);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.32);
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.shop-panel {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 520px;
+    max-width: 94vw;
+    background: rgba(10,16,16,0.98);
+    border: 3px solid #80deea;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    z-index: 3200;
+    border-radius: 12px;
+    padding: 14px;
+}
+.shop-inner h2 { text-align:center; color:#80deea; margin:6px 0 8px 0; }
+.shop-list { list-style:none; margin:8px 0; padding:0; max-height: 320px; overflow:auto; }
+.shop-item { display:flex; gap:12px; align-items:center; padding:10px; border-bottom:1px dashed rgba(128,222,234,0.06); }
+.shop-icon { width:54px; height:54px; flex:0 0 54px; }
+.shop-meta { flex:1; color:#fffde7; }
+.shop-title { font-weight:700; color:#ffd54f; }
+.shop-desc { font-size:0.9rem; color:#e8f5ff; opacity:0.92; }
+.shop-buy { flex:0 0 210px; text-align:right; color:#fffde7; }
+.shop-price { color:#ffd54f; margin-right:8px; }
+.buy-btn { margin-left:8px; padding:6px 10px; border-radius:8px; background:linear-gradient(180deg,#ffd54f 0%,#f0c14b 100%); color:#472b00; border:1px solid #d4af37; cursor:pointer; }
+.buy-btn:hover { transform:scale(1.03); }
+
+@media (max-width:600px) {
+    .shop-panel { width: 94vw; left: 50%; top: 52%; }
+    .shop-buy { flex-basis: 160px; }
+    .shop-btn { right: 18px; top: 60px; }
 }
